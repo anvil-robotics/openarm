@@ -1,0 +1,32 @@
+name: CI
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  build-package:
+    name: Build Package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: 3.8
+
+      - name: Install Dependencies
+        run: |
+          pip install -e .
+          pip install build ruff
+
+      - name: Check Formatting
+        run: ruff format --diff
+
+      - name: Check Lint
+        run: ruff check
+
+      - name: Build Package
+        run: python -m build
