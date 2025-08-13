@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm"
+version = "0.1.0"
+description = "A Python package for robotic arm control and automation"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["can"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openarm*"]
