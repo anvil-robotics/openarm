@@ -6,10 +6,10 @@ class Bus:
         self.bus = bus
         self.lookup : dict[int, list[can.Message]] = {}
 
-    def send(self, msg: can.Message, timeout: float | None):
+    def send(self, msg: can.Message, timeout: float | None = None):
         self.bus.send(msg, timeout)
     
-    def recv(self, arbitration_id: int, timeout: float | None) -> can.Message:
+    def recv(self, arbitration_id: int, timeout: float | None = None) -> can.Message:
         list = self.lookup[arbitration_id]
         if list and len(list) > 0:
             return list.pop(0)
