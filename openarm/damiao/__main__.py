@@ -14,10 +14,17 @@ Examples:
 """
 
 import argparse
+import sys
 
 import can
 
-from . import disable_command, enable_command
+from . import (
+    RegisterResponse,
+    decode_response,
+    disable_command,
+    enable_command,
+    read_register_command,
+)
 
 
 def _enable(args: argparse.Namespace) -> None:
@@ -28,6 +35,17 @@ def _enable(args: argparse.Namespace) -> None:
 def _disable(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(disable_command(args.slave_id))
+
+
+def _register_read(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(read_register_command(args.slave_id, args.address))
+        for msg in bus:
+            res = decode_response(msg)
+            if isinstance(res, RegisterResponse) and res.slave_id == args.slave_id:
+                value = res.as_float() if args.as_float else res.as_int()
+                sys.stdout.write(f"{value}\n")
+                return
 
 
 def _main() -> None:
@@ -43,6 +61,18 @@ def _main() -> None:
     disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
     disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     disable_parser.set_defaults(func=_disable)
+
+    register_parser = subparsers.add_parser("register", help="Manage motor register")
+    register_subparsers = register_parser.add_subparsers(dest="command", required=True)
+
+    read_parser = register_subparsers.add_parser("read", help="Read motor register")
+    read_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    read_parser.add_argument(
+        "--as-float", action="store_true", default=False, help="Read as float"
+    )
+    read_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    read_parser.add_argument("address", type=int, help="Register address to read")
+    read_parser.set_defaults(func=_register_read)
 
     args = parser.parse_args()
     args.func(args)
