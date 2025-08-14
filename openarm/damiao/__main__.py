@@ -24,6 +24,7 @@ from . import (
     StateResponse,
     control_mit_command,
     control_pos_vel_command,
+    control_vel_command,
     decode_response,
     disable_command,
     enable_command,
@@ -84,6 +85,11 @@ def _control_mit(args: argparse.Namespace) -> None:
 def _control_pos_vel(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(control_pos_vel_command(args.slave_id, args.pos, args.vel))
+
+
+def _control_vel(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(control_vel_command(args.slave_id, args.vel))
 
 
 def _register_read(args: argparse.Namespace) -> None:
@@ -163,6 +169,14 @@ def _main() -> None:
         "vel", type=float, help="Desired velocity (radians/second)"
     )
     pos_vel_parser.set_defaults(func=_control_pos_vel)
+
+    vel_parser = control_subparsers.add_parser(
+        "vel", help="Control motor in velocity mode"
+    )
+    vel_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    vel_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    vel_parser.add_argument("vel", type=float, help="Desired velocity (radians/second)")
+    vel_parser.set_defaults(func=_control_vel)
 
     register_parser = subparsers.add_parser("register", help="Manage motor register")
     register_subparsers = register_parser.add_subparsers(dest="command", required=True)
