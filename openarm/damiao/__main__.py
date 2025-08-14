@@ -22,6 +22,7 @@ from . import (
     MotorType,
     RegisterResponse,
     StateResponse,
+    control_mit_command,
     decode_response,
     disable_command,
     enable_command,
@@ -56,6 +57,21 @@ def _refresh(args: argparse.Namespace) -> None:
                 sys.stdout.write(f"t mos: {res.t_mos}\n")
                 sys.stdout.write(f"t rotor: {res.t_rotor}\n")
                 return
+
+
+def _control_mit(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(
+            control_mit_command(
+                MotorType(args.motor_type),
+                args.slave_id,
+                args.kp,
+                args.kd,
+                args.q,
+                args.dq,
+                args.tau,
+            )
+        )
 
 
 def _register_read(args: argparse.Namespace) -> None:
@@ -105,6 +121,20 @@ def _main() -> None:
     refresh_parser.add_argument("master_id", type=int, help="Master ID of the motor")
     refresh_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     refresh_parser.set_defaults(func=_refresh)
+
+    control_parser = subparsers.add_parser("control", help="Control motor")
+    control_subparsers = control_parser.add_subparsers(dest="command", required=True)
+
+    mit_parser = control_subparsers.add_parser("mit", help="Control motor in MIT mode")
+    mit_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    mit_parser.add_argument("motor_type", help="The motor type")
+    mit_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    mit_parser.add_argument("kp", type=float, help="Proportional gain")
+    mit_parser.add_argument("kd", type=float, help="Derivative gain")
+    mit_parser.add_argument("q", type=float, help="Desired position (radians)")
+    mit_parser.add_argument("dq", type=float, help="Desired velocity (radians/second)")
+    mit_parser.add_argument("tau", type=float, help="Desired torque (Nm)")
+    mit_parser.set_defaults(func=_control_mit)
 
     register_parser = subparsers.add_parser("register", help="Manage motor register")
     register_subparsers = register_parser.add_subparsers(dest="command", required=True)

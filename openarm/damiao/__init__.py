@@ -1,8 +1,8 @@
-"""Damiao sub-package for OpenArm.
+"""Damiao subpackage for OpenArm.
 
-This module provides helper functions to construct CAN messages
-for enabling and disabling Damiao motors, reading registers, and
-decoding responses from the motors.
+Provides utilities for constructing CAN messages to control Damiao motors,
+including commands for enabling/disabling motors, reading registers, and
+decoding motor responses.
 """
 
 import struct
@@ -163,6 +163,64 @@ def refresh_command(slave_id: int) -> can.Message:
             0x00,
             0x00,
             0x00,
+        ],
+        is_extended_id=False,
+    )
+
+
+def _map_float_to_uint(val: float, min_val: float, max_val: float, bits: int) -> int:
+    if val < min_val:
+        val = min_val
+    elif val > max_val:
+        val = max_val
+
+    norm = (val - min_val) / (max_val - min_val)
+    return int(norm * ((1 << bits) - 1))
+
+
+def control_mit_command(
+    motor_type: MotorType,
+    slave_id: int,
+    kp: float,
+    kd: float,
+    q: float,
+    dq: float,
+    tau: float,
+) -> can.Message:
+    """Create a CAN message to control a Damiao motor in MIT mode.
+
+    Args:
+        motor_type (MotorType): The type of the motor.
+        slave_id (int): Slave ID for the target motor.
+        kp (float): Proportional gain.
+        kd (float): Derivative gain.
+        q (float): Desired position (radians).
+        dq (float): Desired velocity (radians/second).
+        tau (float): Desired torque (Nm).
+
+    Returns:
+        can.Message: A CAN message with MIT-mode control parameters.
+
+    """
+    lim = _MOTOR_LIMITS[motor_type]
+
+    kp_uint = _map_float_to_uint(kp, 0, 500, 12)
+    kd_uint = _map_float_to_uint(kd, 0, 500, 12)
+    q_uint = _map_float_to_uint(q, -lim.q_max, lim.q_max, 16)
+    dq_uint = _map_float_to_uint(dq, -lim.dq_max, lim.dq_max, 12)
+    tau_uint = _map_float_to_uint(tau, -lim.tau_max, lim.tau_max, 12)
+
+    return can.Message(
+        arbitration_id=slave_id,
+        data=[
+            (q_uint >> 8) & 0xFF,
+            q_uint & 0xFF,
+            dq_uint >> 4,
+            ((dq_uint & 0xF) << 4) | ((kp_uint >> 8) & 0xF),
+            kp_uint & 0xFF,
+            kd_uint >> 4,
+            ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF),
+            tau_uint & 0xFF,
         ],
         is_extended_id=False,
     )
@@ -366,6 +424,7 @@ __all__ = [
     "Response",
     "StateResponse",
     "UnknownResponse",
+    "control_mit_command",
     "decode_response",
     "disable_command",
     "enable_command",
