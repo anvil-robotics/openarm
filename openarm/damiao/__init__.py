@@ -12,6 +12,7 @@ import can
 
 __version__ = "0.1.0"
 
+_STATE_CODE = 0x11
 _READ_REGISTER_CODE = 0x33
 _WRITE_REGISTER_CODE = 0x55
 
@@ -96,6 +97,33 @@ def disable_command(slave_id: int) -> can.Message:
     return can.Message(
         arbitration_id=slave_id,
         data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD],
+        is_extended_id=False,
+    )
+
+
+def refresh_command(slave_id: int) -> can.Message:
+    """Create a CAN message to refresh the state of a Damiao motor.
+
+    Args:
+        slave_id (int): Slave ID for the target motor.
+
+    Returns:
+        can.Message: A CAN message that, when sent, prompts the motor
+            to send its current state.
+
+    """
+    return can.Message(
+        arbitration_id=0x7FF,
+        data=[
+            slave_id & 0xFF,
+            (slave_id >> 8) & 0xFF,
+            0xCC,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ],
         is_extended_id=False,
     )
 
@@ -186,6 +214,24 @@ class UnknownResponse(Response):
         self.data = msg.data
 
 
+class StateResponse(Response):
+    """Represents a response containing state data from a Damiao motor."""
+
+    def __init__(self, msg: can.Message) -> None:
+        """Initialize a StateResponse object from a CAN message.
+
+        Args:
+            msg (can.Message): The CAN message received from the motor.
+
+        """
+        super().__init__(msg)
+        self.q = ((msg.data[1] << 8) | msg.data[2]) / ((1 << 16) - 1) * 2 - 1
+        self.dq = ((msg.data[3] << 4) | (msg.data[4] >> 4)) / ((1 << 12) - 1) * 2 - 1
+        self.tau = (((msg.data[4] & 0xF) << 8) | msg.data[5]) / ((1 << 12) - 1) * 2 - 1
+        self.t_mos = msg.data[6]
+        self.t_rotor = msg.data[7]
+
+
 class RegisterResponse(Response):
     """Represents a response containing register data from a Damiao motor."""
 
@@ -230,8 +276,11 @@ def decode_response(msg: can.Message) -> Response:
         Response: Either a RegisterResponse or UnknownResponse depending on the command.
 
     """
+    if msg.data[0] == _STATE_CODE:
+        return StateResponse(msg)
     if msg.data[2] == _READ_REGISTER_CODE or msg.data[2] == _WRITE_REGISTER_CODE:
         return RegisterResponse(msg)
+
     return UnknownResponse(msg)
 
 
@@ -239,10 +288,12 @@ __all__ = [
     "RegisterAddress",
     "RegisterResponse",
     "Response",
+    "StateResponse",
     "UnknownResponse",
     "decode_response",
     "disable_command",
     "enable_command",
     "read_register_command",
+    "refresh_command",
     "write_register_command",
 ]

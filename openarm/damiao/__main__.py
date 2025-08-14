@@ -20,10 +20,12 @@ import can
 
 from . import (
     RegisterResponse,
+    StateResponse,
     decode_response,
     disable_command,
     enable_command,
     read_register_command,
+    refresh_command,
     write_register_command,
 )
 
@@ -36,6 +38,20 @@ def _enable(args: argparse.Namespace) -> None:
 def _disable(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(disable_command(args.slave_id))
+
+
+def _refresh(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(refresh_command(args.slave_id))
+        for msg in bus:
+            res = decode_response(msg)
+            if isinstance(res, StateResponse) and res.master_id == args.master_id:
+                sys.stdout.write(f"q: {res.q}\n")
+                sys.stdout.write(f"dq: {res.dq}\n")
+                sys.stdout.write(f"tau: {res.tau}\n")
+                sys.stdout.write(f"t mos: {res.t_mos}\n")
+                sys.stdout.write(f"t rotor: {res.t_rotor}\n")
+                return
 
 
 def _register_read(args: argparse.Namespace) -> None:
@@ -78,6 +94,12 @@ def _main() -> None:
     disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
     disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     disable_parser.set_defaults(func=_disable)
+
+    refresh_parser = subparsers.add_parser("refresh", help="Refresh motor")
+    refresh_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    refresh_parser.add_argument("master_id", type=int, help="Master ID of the motor")
+    refresh_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    refresh_parser.set_defaults(func=_refresh)
 
     register_parser = subparsers.add_parser("register", help="Manage motor register")
     register_subparsers = register_parser.add_subparsers(dest="command", required=True)
