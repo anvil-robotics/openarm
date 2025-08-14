@@ -7,8 +7,11 @@ name = "openarm"
 version = "0.1.0"
 description = "A Python package for robotic arm control and automation"
 readme = "README.md"
-requires-python = ">=3.8"
-dependencies = ["can"]
+requires-python = ">=3.11"
+dependencies = ["python-can"]
+
+[project.scripts]
+damiao = "openarm.damiao.__main__:_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -16,4 +19,4 @@ include = ["openarm*"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "D203", "D213"]
+ignore = ["COM812", "D203", "D213", "PLR0913", "PLR0915"]
