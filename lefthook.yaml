@@ -1,0 +1,11 @@
+pre-commit:
+  piped: true
+  jobs:
+    - name: fix formatting
+      run: ruff format
+
+    - name: fix lint
+      run: ruff check --fix
+
+    - name: check diff
+      run: git diff --exit-code {staged_files}
