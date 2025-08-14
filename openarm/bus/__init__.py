@@ -16,7 +16,7 @@ class Bus:
 
         """
         self.bus = bus
-        self.lookup : dict[int, list[can.Message]] = {}
+        self.lookup: dict[int, list[can.Message]] = {}
 
     def send(self, msg: can.Message, timeout: float | None = None):
         """Send a CAN message.
