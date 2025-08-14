@@ -23,6 +23,7 @@ from . import (
     RegisterResponse,
     StateResponse,
     control_mit_command,
+    control_pos_force_command,
     control_pos_vel_command,
     control_vel_command,
     decode_response,
@@ -90,6 +91,13 @@ def _control_pos_vel(args: argparse.Namespace) -> None:
 def _control_vel(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(control_vel_command(args.slave_id, args.vel))
+
+
+def _control_pos_force(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(
+            control_pos_force_command(args.slave_id, args.pos, args.vel, args.i_norm)
+        )
 
 
 def _register_read(args: argparse.Namespace) -> None:
@@ -177,6 +185,22 @@ def _main() -> None:
     vel_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     vel_parser.add_argument("vel", type=float, help="Desired velocity (radians/second)")
     vel_parser.set_defaults(func=_control_vel)
+
+    pos_force_parser = control_subparsers.add_parser(
+        "pos_force", help="Control motor in force-position hybrid mode"
+    )
+    pos_force_parser.add_argument(
+        "--iface", default="can0", help="CAN interface to use"
+    )
+    pos_force_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    pos_force_parser.add_argument("pos", type=float, help="Desired position (radians)")
+    pos_force_parser.add_argument(
+        "vel", type=float, help="Desired velocity (radians/second)"
+    )
+    pos_force_parser.add_argument(
+        "i_norm", type=float, help="Desired normalized current (0-1)"
+    )
+    pos_force_parser.set_defaults(func=_control_pos_force)
 
     register_parser = subparsers.add_parser("register", help="Manage motor register")
     register_subparsers = register_parser.add_subparsers(dest="command", required=True)

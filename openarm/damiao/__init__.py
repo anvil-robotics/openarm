@@ -288,6 +288,47 @@ def control_vel_command(
     )
 
 
+def control_pos_force_command(
+    slave_id: int,
+    pos: float,
+    vel: float,
+    i_norm: float,
+) -> can.Message:
+    """Create a CAN message to control a Damiao motor in force-position hybrid mode.
+
+    Args:
+        slave_id (int): Slave ID for the target motor.
+        pos (float): Desired position (radians).
+        vel (float): Desired velocity (radians/second).
+        i_norm (float): Desired normalized current in the range 0-1,
+            where 1 corresponds to the motor's maximum current.
+
+    Returns:
+        can.Message: A CAN message containing the position, velocity, and current
+            parameters.
+
+    """
+    if i_norm < 0:
+        i_norm = 0
+    elif i_norm > 1:
+        i_norm = 1
+
+    vel_uint = int(vel * 100)
+    i_uint = int(i_norm * 10000)
+
+    return can.Message(
+        arbitration_id=0x300 + slave_id,
+        data=[
+            *struct.pack("<f", float(pos)),
+            vel_uint & 0xFF,
+            vel_uint >> 8,
+            i_uint & 0xFF,
+            i_uint >> 8,
+        ],
+        is_extended_id=False,
+    )
+
+
 def read_register_command(slave_id: int, address: RegisterAddress) -> can.Message:
     """Create a CAN message to read a specific register from a Damiao motor.
 
@@ -487,6 +528,7 @@ __all__ = [
     "StateResponse",
     "UnknownResponse",
     "control_mit_command",
+    "control_pos_force_command",
     "control_pos_vel_command",
     "control_vel_command",
     "decode_response",
