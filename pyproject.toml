@@ -13,3 +13,7 @@ dependencies = ["can"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["openarm*"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "D203", "D213"]
