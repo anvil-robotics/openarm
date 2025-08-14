@@ -107,6 +107,15 @@ class RegisterAddress(IntEnum):
     XOUT = 81
 
 
+class ControlMode(IntEnum):
+    """Enumeration of Damiao motor control mode."""
+
+    MIT = 1
+    POS_VEL = 2
+    VEL = 3
+    POS_FORCE = 4
+
+
 def enable_command(slave_id: int) -> can.Message:
     """Create a CAN message to enable a Damiao motor.
 
@@ -388,6 +397,20 @@ def write_register_command(
     )
 
 
+def set_control_mode_command(slave_id: int, mode: ControlMode) -> can.Message:
+    """Create a CAN message to set the control mode of a Damiao motor.
+
+    Args:
+        slave_id (int): Slave ID of the target motor.
+        mode (ControlMode): The control mode to set.
+
+    Returns:
+        can.Message: A CAN message that, when sent, sets the motor's control mode.
+
+    """
+    return write_register_command(slave_id, RegisterAddress.CTRL_MODE, mode)
+
+
 class Response:
     """Base class for responses from Damiao motors."""
 
@@ -520,6 +543,7 @@ def decode_response(msg: can.Message) -> Response:
 
 
 __all__ = [
+    "ControlMode",
     "MotorState",
     "MotorType",
     "RegisterAddress",
@@ -536,6 +560,7 @@ __all__ = [
     "enable_command",
     "read_register_command",
     "refresh_command",
+    "set_control_mode_command",
     "set_zero_command",
     "write_register_command",
 ]
