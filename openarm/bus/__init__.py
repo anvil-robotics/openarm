@@ -10,7 +10,7 @@ class Bus:
 
     def __init__(self, bus: can.BusABC):
         """Initialize the bus multiplexer.
-        
+
         Args:
             bus: The underlying CAN bus interface.
 
@@ -20,7 +20,7 @@ class Bus:
 
     def send(self, msg: can.Message, timeout: float | None = None):
         """Send a CAN message.
-        
+
         Args:
             msg: The CAN message to send.
             timeout: Optional send timeout in seconds.
@@ -30,13 +30,13 @@ class Bus:
 
     def recv(self, arbitration_id: int, timeout: float | None = None):
         """Receive a CAN message with the specified arbitration ID.
-        
+
         Messages with other arbitration IDs are queued for later retrieval.
-        
+
         Args:
             arbitration_id: The arbitration ID to filter for.
             timeout: Optional receive timeout in seconds. None means wait indefinitely.
-            
+
         Returns:
             The received CAN message, or None if timeout occurred.
 
