@@ -141,6 +141,24 @@ def disable_command(slave_id: int) -> can.Message:
     )
 
 
+def set_zero_command(slave_id: int) -> can.Message:
+    """Create a CAN message to set the current position of a Damiao motor as zero.
+
+    Args:
+        slave_id (int): The slave ID of the target motor.
+
+    Returns:
+        can.Message: A CAN message that, when sent, sets the motor's current position
+            as its zero reference.
+
+    """
+    return can.Message(
+        arbitration_id=slave_id,
+        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE],
+        is_extended_id=False,
+    )
+
+
 def refresh_command(slave_id: int) -> can.Message:
     """Create a CAN message to refresh the state of a Damiao motor.
 
@@ -454,5 +472,6 @@ __all__ = [
     "enable_command",
     "read_register_command",
     "refresh_command",
+    "set_zero_command",
     "write_register_command",
 ]

@@ -29,6 +29,7 @@ from . import (
     enable_command,
     read_register_command,
     refresh_command,
+    set_zero_command,
     write_register_command,
 )
 
@@ -41,6 +42,11 @@ def _enable(args: argparse.Namespace) -> None:
 def _disable(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(disable_command(args.slave_id))
+
+
+def _set_zero(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(set_zero_command(args.slave_id))
 
 
 def _refresh(args: argparse.Namespace) -> None:
@@ -120,6 +126,11 @@ def _main() -> None:
     disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
     disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     disable_parser.set_defaults(func=_disable)
+
+    disable_parser = subparsers.add_parser("set_zero", help="Set motor zero position")
+    disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    disable_parser.set_defaults(func=_set_zero)
 
     refresh_parser = subparsers.add_parser("refresh", help="Refresh motor")
     refresh_parser.add_argument("--iface", default="can0", help="CAN interface to use")
