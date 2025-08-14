@@ -226,6 +226,29 @@ def control_mit_command(
     )
 
 
+def control_pos_vel_command(
+    slave_id: int,
+    pos: float,
+    vel: float,
+) -> can.Message:
+    """Create a CAN message to control a Damiao motor in position and velocity mode.
+
+    Args:
+        slave_id (int): Slave ID for the target motor.
+        pos (float): Desired position (radians).
+        vel (float): Desired velocity (radians/second).
+
+    Returns:
+        can.Message: A CAN message containing position and velocity control parameters.
+
+    """
+    return can.Message(
+        arbitration_id=0x100 + slave_id,
+        data=[*struct.pack("<f", float(pos)), *struct.pack("<f", float(vel))],
+        is_extended_id=False,
+    )
+
+
 def read_register_command(slave_id: int, address: RegisterAddress) -> can.Message:
     """Create a CAN message to read a specific register from a Damiao motor.
 
@@ -425,6 +448,7 @@ __all__ = [
     "StateResponse",
     "UnknownResponse",
     "control_mit_command",
+    "control_pos_vel_command",
     "decode_response",
     "disable_command",
     "enable_command",
