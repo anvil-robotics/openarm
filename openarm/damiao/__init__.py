@@ -13,6 +13,7 @@ import can
 __version__ = "0.1.0"
 
 _READ_REGISTER_CODE = 0x33
+_WRITE_REGISTER_CODE = 0x55
 
 
 class RegisterAddress(IntEnum):
@@ -126,6 +127,38 @@ def read_register_command(slave_id: int, address: RegisterAddress) -> can.Messag
     )
 
 
+def write_register_command(
+    slave_id: int, address: RegisterAddress, value: float, *, as_float: bool = False
+) -> can.Message:
+    """Create a CAN message to write a value to a specific register of a Damiao motor.
+
+    Args:
+        slave_id (int): Slave ID of the target motor.
+        address (RegisterAddress): The register address to write.
+        value (float): The value to write to the register.
+        as_float (bool, optional): If True, the value is written as a 32-bit float.
+
+    Returns:
+        can.Message: A CAN message that, when sent, writes the value to the register.
+
+    """
+    return can.Message(
+        arbitration_id=0x7FF,
+        data=[
+            slave_id & 0xFF,
+            (slave_id >> 8) & 0xFF,
+            _WRITE_REGISTER_CODE,
+            address,
+            *(
+                struct.pack("<f", float(value))
+                if as_float
+                else struct.pack("<I", int(value))
+            ),
+        ],
+        is_extended_id=False,
+    )
+
+
 class Response:
     """Base class for responses from Damiao motors."""
 
@@ -197,7 +230,7 @@ def decode_response(msg: can.Message) -> Response:
         Response: Either a RegisterResponse or UnknownResponse depending on the command.
 
     """
-    if msg.data[2] == _READ_REGISTER_CODE:
+    if msg.data[2] == _READ_REGISTER_CODE or msg.data[2] == _WRITE_REGISTER_CODE:
         return RegisterResponse(msg)
     return UnknownResponse(msg)
 
@@ -211,4 +244,5 @@ __all__ = [
     "disable_command",
     "enable_command",
     "read_register_command",
+    "write_register_command",
 ]

@@ -24,6 +24,7 @@ from . import (
     disable_command,
     enable_command,
     read_register_command,
+    write_register_command,
 )
 
 
@@ -40,6 +41,22 @@ def _disable(args: argparse.Namespace) -> None:
 def _register_read(args: argparse.Namespace) -> None:
     with can.Bus(channel=args.iface, interface="socketcan") as bus:
         bus.send(read_register_command(args.slave_id, args.address))
+        for msg in bus:
+            res = decode_response(msg)
+            if isinstance(res, RegisterResponse) and res.slave_id == args.slave_id:
+                value = res.as_float() if args.as_float else res.as_int()
+                sys.stdout.write(f"{value}\n")
+                return
+
+
+def _register_write(args: argparse.Namespace) -> None:
+    with can.Bus(channel=args.iface, interface="socketcan") as bus:
+        bus.send(
+            write_register_command(
+                args.slave_id, args.address, args.value, as_float=args.as_float
+            )
+        )
+
         for msg in bus:
             res = decode_response(msg)
             if isinstance(res, RegisterResponse) and res.slave_id == args.slave_id:
@@ -73,6 +90,16 @@ def _main() -> None:
     read_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     read_parser.add_argument("address", type=int, help="Register address to read")
     read_parser.set_defaults(func=_register_read)
+
+    write_parser = register_subparsers.add_parser("write", help="Write motor register")
+    write_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    write_parser.add_argument(
+        "--as-float", action="store_true", default=False, help="Write as float"
+    )
+    write_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    write_parser.add_argument("address", type=int, help="Register address to write")
+    write_parser.add_argument("value", type=float, help="Value to write")
+    write_parser.set_defaults(func=_register_write)
 
     args = parser.parse_args()
     args.func(args)
