@@ -19,6 +19,7 @@ import sys
 import can
 
 from . import (
+    MotorType,
     RegisterResponse,
     StateResponse,
     decode_response,
@@ -46,6 +47,9 @@ def _refresh(args: argparse.Namespace) -> None:
         for msg in bus:
             res = decode_response(msg)
             if isinstance(res, StateResponse) and res.master_id == args.master_id:
+                if args.motor_type is not None:
+                    res = res.as_motor(MotorType(args.motor_type))
+
                 sys.stdout.write(f"q: {res.q}\n")
                 sys.stdout.write(f"dq: {res.dq}\n")
                 sys.stdout.write(f"tau: {res.tau}\n")
@@ -97,6 +101,7 @@ def _main() -> None:
 
     refresh_parser = subparsers.add_parser("refresh", help="Refresh motor")
     refresh_parser.add_argument("--iface", default="can0", help="CAN interface to use")
+    refresh_parser.add_argument("--motor-type", default=None, help="The motor type")
     refresh_parser.add_argument("master_id", type=int, help="Master ID of the motor")
     refresh_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
     refresh_parser.set_defaults(func=_refresh)

@@ -6,7 +6,8 @@ decoding responses from the motors.
 """
 
 import struct
-from enum import IntEnum
+from enum import IntEnum, StrEnum
+from typing import NamedTuple
 
 import can
 
@@ -15,6 +16,45 @@ __version__ = "0.1.0"
 _STATE_CODE = 0x11
 _READ_REGISTER_CODE = 0x33
 _WRITE_REGISTER_CODE = 0x55
+
+
+class MotorType(StrEnum):
+    """Enumeration of Damiao motor types."""
+
+    DM4310 = "DM4310"
+    DM4310_48V = "DM4310_48V"
+    DM4340 = "DM4340"
+    DM4340_48V = "DM4340_48V"
+    DM6006 = "DM6006"
+    DM8006 = "DM8006"
+    DM8009 = "DM8009"
+    DM10010L = "DM10010L"
+    DM10010 = "DM10010"
+    DMH3510 = "DMH3510"
+    DMH6215 = "DMH6215"
+    DMG6220 = "DMG6220"
+
+
+class _MotorLimit(NamedTuple):
+    q_max: float
+    dq_max: float
+    tau_max: float
+
+
+_MOTOR_LIMITS = {
+    MotorType.DM4310: _MotorLimit(q_max=12.5, dq_max=30, tau_max=10),
+    MotorType.DM4310_48V: _MotorLimit(q_max=12.5, dq_max=50, tau_max=10),
+    MotorType.DM4340: _MotorLimit(q_max=12.5, dq_max=8, tau_max=28),
+    MotorType.DM4340_48V: _MotorLimit(q_max=12.5, dq_max=10, tau_max=28),
+    MotorType.DM6006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=20),
+    MotorType.DM8006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=40),
+    MotorType.DM8009: _MotorLimit(q_max=12.5, dq_max=45, tau_max=54),
+    MotorType.DM10010L: _MotorLimit(q_max=12.5, dq_max=25, tau_max=200),
+    MotorType.DM10010: _MotorLimit(q_max=12.5, dq_max=20, tau_max=200),
+    MotorType.DMH3510: _MotorLimit(q_max=12.5, dq_max=280, tau_max=1),
+    MotorType.DMH6215: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
+    MotorType.DMG6220: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
+}
 
 
 class RegisterAddress(IntEnum):
@@ -214,6 +254,21 @@ class UnknownResponse(Response):
         self.data = msg.data
 
 
+class MotorState(NamedTuple):
+    """Represents a state data from a Damiao motor."""
+
+    q: float
+    dq: float
+    tau: float
+    t_mos: int
+    t_rotor: int
+
+
+def _map_uint_to_float(val: int, min_val: float, max_val: float, bits: int) -> float:
+    norm = val / ((1 << bits) - 1)
+    return min_val + norm * (max_val - min_val)
+
+
 class StateResponse(Response):
     """Represents a response containing state data from a Damiao motor."""
 
@@ -225,11 +280,30 @@ class StateResponse(Response):
 
         """
         super().__init__(msg)
-        self.q = ((msg.data[1] << 8) | msg.data[2]) / ((1 << 16) - 1) * 2 - 1
-        self.dq = ((msg.data[3] << 4) | (msg.data[4] >> 4)) / ((1 << 12) - 1) * 2 - 1
-        self.tau = (((msg.data[4] & 0xF) << 8) | msg.data[5]) / ((1 << 12) - 1) * 2 - 1
+        self.q = (msg.data[1] << 8) | msg.data[2]
+        self.dq = (msg.data[3] << 4) | (msg.data[4] >> 4)
+        self.tau = ((msg.data[4] & 0xF) << 8) | msg.data[5]
         self.t_mos = msg.data[6]
         self.t_rotor = msg.data[7]
+
+    def as_motor(self, motor_type: MotorType) -> MotorState:
+        """Convert the raw state values to scaled motor units.
+
+        Args:
+            motor_type (MotorType): The type of the motor.
+
+        Returns:
+            MotorState: A scaled motor state.
+
+        """
+        lim = _MOTOR_LIMITS[motor_type]
+        return MotorState(
+            q=_map_uint_to_float(self.q, -lim.q_max, lim.q_max, 16),
+            dq=_map_uint_to_float(self.dq, -lim.dq_max, lim.dq_max, 12),
+            tau=_map_uint_to_float(self.tau, -lim.tau_max, lim.tau_max, 12),
+            t_mos=self.t_mos,
+            t_rotor=self.t_rotor,
+        )
 
 
 class RegisterResponse(Response):
@@ -285,6 +359,8 @@ def decode_response(msg: can.Message) -> Response:
 
 
 __all__ = [
+    "MotorState",
+    "MotorType",
     "RegisterAddress",
     "RegisterResponse",
     "Response",
