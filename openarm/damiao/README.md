@@ -90,6 +90,100 @@ def send_command(bus: Bus, motor_id: int, command: str, value: float) -> Corouti
     return receive_data(bus, motor_id)
 ```
 
+## Data Structures for Complex Encoding/Decoding
+
+### Simple Data Types
+For simple data types (float, int), functions can accept them directly:
+```python
+# Simple data - accept float directly
+def set_position(bus: Bus, motor_id: int, position: float) -> None:
+    # Pack position as little-endian 32-bit binary data
+    # Reference: Position command format in docs/damiao_protocol.pdf section 3.1
+    data = struct.pack('<f', position)
+    message = can.Message(arbitration_id=motor_id, data=data)
+    bus.send(message)
+```
+
+### Complex Data Types - Custom Dataclasses
+For complex data structures, functions must handle dataclasses:
+```python
+from dataclasses import dataclass
+
+@dataclass
+class MotorConfig:
+    max_velocity: float
+    max_torque: float
+    pid_kp: float
+    pid_ki: float
+    pid_kd: float
+    enable_limits: bool
+
+# Complex data - function handles dataclass
+def configure_motor(bus: Bus, motor_id: int, config: MotorConfig) -> None:
+    # Pack complex dataclass into binary format
+    # Reference: Configuration packet format in docs/damiao_protocol.pdf section 6.1
+    data = struct.pack('<fffff?', 
+        config.max_velocity,    # Little-endian float
+        config.max_torque,      # Little-endian float  
+        config.pid_kp,          # Little-endian float
+        config.pid_ki,          # Little-endian float
+        config.pid_kd,          # Little-endian float
+        config.enable_limits    # Boolean as byte
+    )
+    
+    message = can.Message(arbitration_id=motor_id, data=data)
+    bus.send(message)
+```
+
+### Decoding Complex Data
+For complex response data, return dataclasses:
+```python
+@dataclass
+class MotorStatus:
+    position: float
+    velocity: float
+    torque: float
+    temperature: float
+    error_code: int
+
+async def get_motor_status(bus: Bus, motor_id: int) -> MotorStatus:
+    response_id = motor_id + 0x100
+    message = bus.recv(response_id, timeout=0.1)
+    
+    # Unpack complex response into dataclass
+    # Format: position(f) + velocity(f) + torque(f) + temperature(f) + error_code(H)
+    # Reference: Status packet format in docs/damiao_protocol.pdf section 6.2
+    position, velocity, torque, temperature, error_code = struct.unpack('<ffffH', message.data)
+    
+    return MotorStatus(
+        position=position,
+        velocity=velocity, 
+        torque=torque,
+        temperature=temperature,
+        error_code=error_code
+    )
+```
+
+### ❌ Wrong Data Structure Examples
+
+```python
+# WRONG: Using type unions (bad practice)
+def send_request(bus: Bus, motor_id: int, data: MotorConfig | float) -> None:
+    if isinstance(data, MotorConfig):  # BAD: Avoid union types
+        # implementation
+    else:
+        # implementation
+
+# WRONG: Generic functions with string commands
+def send_command(bus: Bus, motor_id: int, command: str, data: Any) -> None:
+    # BAD: Too generic, unclear what data types are expected
+
+# WRONG: Not using dataclasses for complex data
+def configure_motor(bus: Bus, motor_id: int, max_vel: float, max_torque: float, 
+                   pid_kp: float, pid_ki: float, pid_kd: float, limits: bool) -> None:
+    # BAD: Too many parameters, should use dataclass
+```
+
 ### Key Considerations
 
 - **Send Operations**: Direct, blocking calls for immediate message transmission
