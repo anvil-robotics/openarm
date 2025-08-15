@@ -6,9 +6,9 @@ import can
 
 
 class Bus:
-    """CAN bus wrapper that queues messages by arbitration ID for selective receiving."""
+    """CAN bus wrapper."""
 
-    def __init__(self, bus: can.BusABC):
+    def __init__(self, bus: can.BusABC) -> None:
         """Initialize the bus multiplexer.
 
         Args:
@@ -18,7 +18,7 @@ class Bus:
         self.bus = bus
         self.lookup: dict[int, list[can.Message]] = {}
 
-    def send(self, msg: can.Message, timeout: float | None = None):
+    def send(self, msg: can.Message, timeout: float | None = None) -> None:
         """Send a CAN message.
 
         Args:
@@ -28,7 +28,9 @@ class Bus:
         """
         self.bus.send(msg, timeout)
 
-    def recv(self, arbitration_id: int, timeout: float | None = None):
+    def recv(
+        self, arbitration_id: int, timeout: float | None = None
+    ) -> can.Message | None:
         """Receive a CAN message with the specified arbitration ID.
 
         Messages with other arbitration IDs are queued for later retrieval.
