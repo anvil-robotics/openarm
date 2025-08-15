@@ -1,8 +1,21 @@
 """CAN bus message multiplexer for filtering messages by arbitration ID."""
 
 from time import time
+from typing import Protocol
 
 import can
+
+
+class BusProtocol(Protocol):
+    """Protocol defining the interface for CAN bus implementations."""
+
+    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+        """Send a CAN message."""
+        ...
+
+    def recv(self, arbitration_id: int, timeout: float | None = None) -> can.Message | None:
+        """Receive a CAN message with the specified arbitration ID."""
+        ...
 
 
 class Bus:
