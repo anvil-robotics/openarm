@@ -80,6 +80,41 @@ async def decode_set_position(bus: Bus, motor_id: int) -> dict:
 
 ```
 
+### Naming Conventions
+
+#### Function Naming Pattern
+Encode/decode functions follow a consistent naming pattern as request-response pairs:
+
+- **`encode_*`** - Synchronous functions that encode data and send CAN requests
+- **`decode_*`** - Asynchronous functions that receive CAN responses and decode data
+
+#### Pairing Convention
+Each command has a corresponding encode/decode pair with matching names:
+
+**Position Commands:**
+- `encode_set_position` / `decode_set_position`
+- `encode_get_position` / `decode_get_position`
+
+**Velocity Commands:**
+- `encode_set_velocity` / `decode_set_velocity`
+- `encode_get_velocity` / `decode_get_velocity`
+
+**Configuration Commands:**
+- `encode_configure_motor` / `decode_configure_motor`
+- `encode_get_config` / `decode_get_config`
+
+**Control Commands:**
+- `encode_enable_motor` / `decode_enable_motor`
+- `encode_disable_motor` / `decode_disable_motor`
+- `encode_reset_motor` / `decode_reset_motor`
+
+#### Key Principles
+- **Function names must match**: `encode_X` pairs with `decode_X`
+- **Encode is synchronous**: Immediate sending, no async/await
+- **Decode is asynchronous**: Waiting for response requires async/await
+- **Clear responsibility**: Encode handles sending, decode handles receiving
+- **Type consistency**: Both functions work with the same command/response data types
+
 ### What NOT to Do - Common Mistakes
 
 #### ❌ Wrong Examples
