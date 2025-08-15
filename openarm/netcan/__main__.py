@@ -23,21 +23,21 @@ def main() -> None:
         "-p",
         type=int,
         default=11898,
-        help="Port to listen on (default: 11898)"
+        help="Port to listen on (default: 11898)",
     )
     parser.add_argument(
         "--bus",
         "-b",
         type=str,
         default="socketcan",
-        help="CAN bus interface type (default: socketcan)"
+        help="CAN bus interface type (default: socketcan)",
     )
     parser.add_argument(
         "--channel",
         "-c",
         type=str,
         default="can0",
-        help="CAN channel/interface name (default: can0)"
+        help="CAN channel/interface name (default: can0)",
     )
 
     args = parser.parse_args()
