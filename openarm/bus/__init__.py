@@ -13,7 +13,9 @@ class BusProtocol(Protocol):
         """Send a CAN message."""
         ...
 
-    def recv(self, arbitration_id: int, timeout: float | None = None) -> can.Message | None:
+    def recv(
+        self, arbitration_id: int, timeout: float | None = None
+    ) -> can.Message | None:
         """Receive a CAN message with the specified arbitration ID."""
         ...
 
