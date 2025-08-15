@@ -90,9 +90,9 @@ def send_command(bus: Bus, motor_id: int, command: str, value: float) -> Corouti
     return receive_data(bus, motor_id)
 ```
 
-## What NOT to Do - Common Mistakes
+### What NOT to Do - Common Mistakes
 
-### ❌ Wrong Examples
+#### ❌ Wrong Examples
 
 ```python
 # WRONG: Importing inside functions
@@ -222,7 +222,7 @@ def configure_motor(bus: Bus, motor_id: int, max_vel: float, max_torque: float,
     # BAD: Too many parameters, should use dataclass
 ```
 
-### Key Considerations
+## Key Considerations
 
 - **Send Operations**: Direct, blocking calls for immediate message transmission
 - **Receive Operations**: Async pattern required for message filtering and queuing
@@ -250,7 +250,7 @@ response1, response2, response3 = await asyncio.gather(
 )
 ```
 
-### ❌ Wrong Usage Examples
+#### ❌ Wrong Usage Examples
 
 ```python
 # WRONG: Sequential execution (slow)
