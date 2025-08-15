@@ -90,6 +90,44 @@ def send_command(bus: Bus, motor_id: int, command: str, value: float) -> Corouti
     return receive_data(bus, motor_id)
 ```
 
+## What NOT to Do - Common Mistakes
+
+### ❌ Wrong Examples
+
+```python
+# WRONG: Importing inside functions
+def send_request(bus: Bus, motor_id: int, value: float) -> None:
+    import struct  # BAD: Import should be at top level
+    data = struct.pack('<f', value)
+
+# WRONG: Using helper functions for encoding/decoding
+def send_request(bus: Bus, motor_id: int, value: float) -> None:
+    message = encode_request(motor_id, value)  # BAD: Assemble can.Message directly
+    bus.send(message)
+
+# WRONG: Missing comments on binary operations
+data = struct.pack('<f', value)  # BAD: No explanation of format
+
+# WRONG: Using await on blocking bus.recv
+async def receive_data(bus: Bus, motor_id: int) -> dict:
+    message = await bus.recv(response_id)  # BAD: bus.recv is blocking, not async
+
+# WRONG: Using helper functions for decoding
+return decode_message(message)  # BAD: Decode inline with struct.unpack
+
+# WRONG: Nested function definitions
+def send_command(bus: Bus, motor_id: int) -> Coroutine:
+    async def _execute():  # BAD: Avoid nested functions
+        # implementation
+    return _execute()
+
+# WRONG: Missing protocol references
+response_id = motor_id + 0x100  # BAD: No reference to documentation
+
+# WRONG: No timeout on recv (can block indefinitely)
+message = bus.recv(response_id)  # BAD: Missing timeout parameter
+```
+
 ## Data Structures for Complex Encoding/Decoding
 
 ### Simple Data Types
@@ -192,44 +230,6 @@ def configure_motor(bus: Bus, motor_id: int, max_vel: float, max_torque: float,
 - **Binary Operations**: Comments must explain struct format strings, byte order, and reference protocol documentation
 - **Message Filtering**: Leverage the bus multiplexer's arbitration ID filtering capabilities
 - **Error Handling**: Handle timeouts and message validation in the encoding layer
-
-## What NOT to Do - Common Mistakes
-
-### ❌ Wrong Examples
-
-```python
-# WRONG: Importing inside functions
-def send_request(bus: Bus, motor_id: int, value: float) -> None:
-    import struct  # BAD: Import should be at top level
-    data = struct.pack('<f', value)
-
-# WRONG: Using helper functions for encoding/decoding
-def send_request(bus: Bus, motor_id: int, value: float) -> None:
-    message = encode_request(motor_id, value)  # BAD: Assemble can.Message directly
-    bus.send(message)
-
-# WRONG: Missing comments on binary operations
-data = struct.pack('<f', value)  # BAD: No explanation of format
-
-# WRONG: Using await on blocking bus.recv
-async def receive_data(bus: Bus, motor_id: int) -> dict:
-    message = await bus.recv(response_id)  # BAD: bus.recv is blocking, not async
-
-# WRONG: Using helper functions for decoding
-return decode_message(message)  # BAD: Decode inline with struct.unpack
-
-# WRONG: Nested function definitions
-def send_command(bus: Bus, motor_id: int) -> Coroutine:
-    async def _execute():  # BAD: Avoid nested functions
-        # implementation
-    return _execute()
-
-# WRONG: Missing protocol references
-response_id = motor_id + 0x100  # BAD: No reference to documentation
-
-# WRONG: No timeout on recv (can block indefinitely)
-message = bus.recv(response_id)  # BAD: Missing timeout parameter
-```
 
 ## Usage Examples
 
