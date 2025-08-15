@@ -48,22 +48,21 @@ import can
 import struct
 from openarm.bus import Bus
 
-# Sending (synchronous)
-def send_request(bus: Bus, motor_id: int, command: str, value: float) -> None:
-    # Pack float value as little-endian 32-bit binary data
+# Encoding (synchronous)
+def encode_set_position(bus: Bus, motor_id: int, position: float) -> None:
+    # Pack position value as little-endian 32-bit binary data
     # Format: '<f' = little-endian (<) + float (f)
-    # Reference: Damiao motor protocol specification (docs/damiao_protocol.pdf)
+    # Reference: Position command format in docs/damiao_protocol.pdf section 3.1
     # IMPORTANT: All binary operations MUST include comments explaining format and byte order
-    data = struct.pack('<f', value)
+    data = struct.pack('<f', position)
     
     # Construct CAN message with motor ID as arbitration ID
-    # Motor responds on same arbitration ID + offset
     # Reference: CAN ID mapping table in docs/damiao_protocol.pdf section 3.2
     message = can.Message(arbitration_id=motor_id, data=data)
     bus.send(message)  # Immediate transmission
 
-# Receiving (asynchronous) 
-async def receive_data(bus: Bus, motor_id: int) -> dict:
+# Decoding (asynchronous) 
+async def decode_set_position(bus: Bus, motor_id: int) -> dict:
     # Calculate response arbitration ID from motor ID (static offset from docs)
     # Reference: Response ID mapping in docs/damiao_protocol.pdf section 4.1
     response_id = motor_id + 0x100  # Static offset defined in protocol
@@ -79,15 +78,6 @@ async def receive_data(bus: Bus, motor_id: int) -> dict:
     position = struct.unpack('<f', message.data[:4])[0]
     return {'motor_id': motor_id, 'position': position}
 
-# Request-Response (returns coroutine)
-def send_command(bus: Bus, motor_id: int, command: str, value: float) -> Coroutine[Any, Any, dict]:
-    """Not an async method, but returns a coroutine."""
-    # Send request using the synchronous send function
-    send_request(bus, motor_id, command, value)
-    
-    # Return coroutine from asynchronous receive function
-    # Response ID calculation is handled inside receive_data
-    return receive_data(bus, motor_id)
 ```
 
 ### What NOT to Do - Common Mistakes
@@ -264,4 +254,31 @@ responses = await asyncio.gather(*tasks)
 
 # WRONG: Forgetting await
 response = set_position(bus, motor_id=1, position=1.5)  # Returns coroutine, not result
+```
+
+## High-Level Motor Class (`__init__.py`)
+
+The high-level interface uses a Motor class that combines encode/decode functions:
+
+```python
+from typing import Coroutine, Any
+from openarm.bus import Bus
+from .encoding import encode_set_position, decode_set_position
+
+class Motor:
+    def __init__(self, bus: Bus, motor_id: int):
+        self.bus = bus
+        self.motor_id = motor_id
+    
+    def set_position(self, position: float) -> Coroutine[Any, Any, dict]:
+        """Set motor position. Returns coroutine to be awaited."""
+        # Encode position and send request
+        encode_set_position(self.bus, self.motor_id, position)
+        
+        # Return coroutine from asynchronous decode function
+        return decode_set_position(self.bus, self.motor_id)
+
+# Usage:
+motor = Motor(bus, motor_id=1)
+response = await motor.set_position(1.5)
 ```
