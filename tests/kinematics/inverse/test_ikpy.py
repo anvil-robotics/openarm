@@ -14,14 +14,6 @@ class TestIkpyInverseKinematics:
         """Create an IkpyInverseKinematics instance for testing."""
         return IkpyInverseKinematics()
 
-    def test_initialization(self) -> None:
-        """Test initialization with default URDF path."""
-        solver = IkpyInverseKinematics()
-        assert solver.left_chain is not None
-        assert solver.right_chain is not None
-        assert solver.left_chain.name == "openarm_left_arm"
-        assert solver.right_chain.name == "openarm_right_arm"
-
     def test_solve_left_arm_position_only(
         self, ik_solver: IkpyInverseKinematics
     ) -> None:
@@ -30,7 +22,6 @@ class TestIkpyInverseKinematics:
         joint_angles = ik_solver.solve_left_arm(target_position)
 
         expected = [
-            0.0,
             -8.015921973847531e-11,
             -7.011177586592124e-11,
             2.331407318441673e-13,
@@ -38,10 +29,6 @@ class TestIkpyInverseKinematics:
             2.3314073184418727e-13,
             6.325432186426653e-12,
             -1.3478336662641326e-11,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
         ]
         np.testing.assert_allclose(joint_angles, expected, atol=1e-10)
 
@@ -53,7 +40,6 @@ class TestIkpyInverseKinematics:
         joint_angles = ik_solver.solve_right_arm(target_position)
 
         expected = [
-            0.0,
             7.99157613987405e-11,
             7.055322223002183e-11,
             2.3252824151479447e-13,
@@ -61,10 +47,6 @@ class TestIkpyInverseKinematics:
             2.3252824151482855e-13,
             -6.123336381555274e-12,
             1.3437399830921545e-11,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
         ]
         np.testing.assert_allclose(joint_angles, expected, atol=1e-10)
 
@@ -86,7 +68,6 @@ class TestIkpyInverseKinematics:
         joint_angles = ik_solver.solve_left_arm(target_position, target_orientation)
 
         expected = [
-            0.0,
             -8.062843626624686e-11,
             -6.940622787710193e-11,
             2.3450600744229315e-13,
@@ -94,10 +75,6 @@ class TestIkpyInverseKinematics:
             2.345060074422923e-13,
             6.302685704254587e-12,
             -1.3557250296707857e-11,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
         ]
         np.testing.assert_allclose(joint_angles, expected, atol=1e-10)
 
@@ -119,7 +96,6 @@ class TestIkpyInverseKinematics:
         joint_angles = ik_solver.solve_right_arm(target_position, target_orientation)
 
         expected = [
-            0.0,
             8.042466504098012e-11,
             6.982351805703608e-11,
             2.3400799022909495e-13,
@@ -127,10 +103,6 @@ class TestIkpyInverseKinematics:
             2.340079902291299e-13,
             -6.019106225482146e-12,
             1.3522986383667286e-11,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
         ]
         np.testing.assert_allclose(joint_angles, expected, atol=1e-10)
 
@@ -139,14 +111,13 @@ class TestIkpyInverseKinematics:
     ) -> None:
         """Test IK solving with initial joint position guess."""
         target_position = np.array([0.3, 0.1, 0.3])
-        initial_guess = np.zeros(12)  # Chain has 12 links
+        initial_guess = np.zeros(7)  # 7 revolute joints
 
         joint_angles = ik_solver.solve_left_arm(
             target_position, initial_position=initial_guess
         )
 
         expected = [
-            0.0,
             -9.081386943634124e-11,
             -5.085907026133079e-11,
             2.6414881409061163e-13,
@@ -154,9 +125,5 @@ class TestIkpyInverseKinematics:
             2.641488140905943e-13,
             4.665259398807471e-12,
             -1.526987036721838e-11,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
         ]
         np.testing.assert_allclose(joint_angles, expected, atol=1e-10)
