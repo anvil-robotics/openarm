@@ -15,15 +15,20 @@ Single Python package with submodules organized as subdirectories.
 ## Core Modules
 
 ### `bus`
+
 CAN bus abstraction layer enabling asynchronous read operations while sending CAN frames.
 
 ### `damiao`
+
 Damiao motor communication and control:
+
 - CAN message protocols
 - CLI tools for motor management (register read/write, ID changes, testing)
 
 ### `openarm`
+
 High-level arm control abstraction:
+
 - Joint position control across all motors
 - Gripper control
 - Whole-arm commands (e.g., zero position setting)
@@ -40,4 +45,5 @@ High-level arm control abstraction:
 ## Additional Tools
 
 ### `netcan`
+
 Network CAN bridge exposing CAN bus over TCP/WebSocket for remote device communication.
