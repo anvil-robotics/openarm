@@ -2,7 +2,7 @@ pre-commit:
   piped: true
   jobs:
     - name: fix formatting
-      run: ruff format
+      run: dprint fmt
 
     - name: fix lint
       run: ruff check --fix
