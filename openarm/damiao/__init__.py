@@ -1,25 +1,56 @@
-"""Damiao subpackage for OpenArm.
+"""Damiao motor control package for OpenArm.
 
-Provides utilities for constructing CAN messages to control Damiao motors,
-including commands for enabling/disabling motors, reading registers, and
-decoding motor responses.
+High-level interface for controlling Damiao motors through CAN bus communication.
+This module provides the main Motor class that orchestrates encode/decode operations
+from the low-level encoding.py implementation.
+
+Reference: README.md High-Level Motor Class section for architecture details.
 """
 
-import struct
-from enum import IntEnum, StrEnum
-from typing import NamedTuple
+from collections.abc import Coroutine
+from enum import StrEnum
+from typing import Any
 
-import can
+from openarm.bus import Bus
+
+from .encoding import (
+    AckResponse,
+    ControlMode,
+    MitControlParams,
+    MotorLimits,
+    MotorState,
+    PosForceControlParams,
+    PosVelControlParams,
+    RegisterAddress,
+    RegisterResponse,
+    VelControlParams,
+    decode_acknowledgment,
+    decode_motor_state,
+    decode_register_value,
+    encode_control_mit,
+    encode_control_pos_force,
+    encode_control_pos_vel,
+    encode_control_vel,
+    encode_disable_motor,
+    encode_enable_motor,
+    encode_enable_motor_legacy,
+    encode_read_register,
+    encode_refresh_status,
+    encode_save_parameters,
+    encode_set_control_mode,
+    encode_set_zero_position,
+    encode_write_register_float,
+    encode_write_register_int,
+)
 
 __version__ = "0.1.0"
 
-_STATE_CODE = 0x11
-_READ_REGISTER_CODE = 0x33
-_WRITE_REGISTER_CODE = 0x55
-
 
 class MotorType(StrEnum):
-    """Enumeration of Damiao motor types."""
+    """Enumeration of Damiao motor types.
+
+    Reference: DM_CAN.py DM_Motor_Type enum and Limit_Param array lines 65-69
+    """
 
     DM4310 = "DM4310"
     DM4310_48V = "DM4310_48V"
@@ -35,532 +66,329 @@ class MotorType(StrEnum):
     DMG6220 = "DMG6220"
 
 
-class _MotorLimit(NamedTuple):
-    q_max: float
-    dq_max: float
-    tau_max: float
-
-
-_MOTOR_LIMITS = {
-    MotorType.DM4310: _MotorLimit(q_max=12.5, dq_max=30, tau_max=10),
-    MotorType.DM4310_48V: _MotorLimit(q_max=12.5, dq_max=50, tau_max=10),
-    MotorType.DM4340: _MotorLimit(q_max=12.5, dq_max=8, tau_max=28),
-    MotorType.DM4340_48V: _MotorLimit(q_max=12.5, dq_max=10, tau_max=28),
-    MotorType.DM6006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=20),
-    MotorType.DM8006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=40),
-    MotorType.DM8009: _MotorLimit(q_max=12.5, dq_max=45, tau_max=54),
-    MotorType.DM10010L: _MotorLimit(q_max=12.5, dq_max=25, tau_max=200),
-    MotorType.DM10010: _MotorLimit(q_max=12.5, dq_max=20, tau_max=200),
-    MotorType.DMH3510: _MotorLimit(q_max=12.5, dq_max=280, tau_max=1),
-    MotorType.DMH6215: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
-    MotorType.DMG6220: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
+# Motor limit configurations for all Damiao motor types
+# Reference: DM_CAN.py Limit_Param array structure lines 65-69
+MOTOR_LIMITS = {
+    MotorType.DM4310: MotorLimits(q_max=12.5, dq_max=30.0, tau_max=10.0),
+    MotorType.DM4310_48V: MotorLimits(q_max=12.5, dq_max=50.0, tau_max=10.0),
+    MotorType.DM4340: MotorLimits(q_max=12.5, dq_max=8.0, tau_max=28.0),
+    MotorType.DM4340_48V: MotorLimits(q_max=12.5, dq_max=10.0, tau_max=28.0),
+    MotorType.DM6006: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=20.0),
+    MotorType.DM8006: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=40.0),
+    MotorType.DM8009: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=54.0),
+    MotorType.DM10010L: MotorLimits(q_max=12.5, dq_max=25.0, tau_max=200.0),
+    MotorType.DM10010: MotorLimits(q_max=12.5, dq_max=20.0, tau_max=200.0),
+    MotorType.DMH3510: MotorLimits(q_max=12.5, dq_max=280.0, tau_max=1.0),
+    MotorType.DMH6215: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=10.0),
+    MotorType.DMG6220: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=10.0),
 }
 
 
-class RegisterAddress(IntEnum):
-    """Enumeration of Damiao motor register addresses."""
+class Motor:
+    """High-level interface for controlling a Damiao motor.
 
-    UV_VALUE = 0
-    KT_VALUE = 1
-    OT_VALUE = 2
-    OC_VALUE = 3
-    ACC = 4
-    DEC = 5
-    MAX_SPD = 6
-    MST_ID = 7
-    ESC_ID = 8
-    TIMEOUT = 9
-    CTRL_MODE = 10
-    DAMP = 11
-    INERTIA = 12
-    HW_VER = 13
-    SW_VER = 14
-    SN = 15
-    NPP = 16
-    RS = 17
-    LS = 18
-    FLUX = 19
-    GR = 20
-    PMAX = 21
-    VMAX = 22
-    TMAX = 23
-    I_BW = 24
-    KP_ASR = 25
-    KI_ASR = 26
-    KP_APR = 27
-    KI_APR = 28
-    OV_VALUE = 29
-    GREF = 30
-    DETA = 31
-    V_BW = 32
-    IQ_C1 = 33
-    VL_C1 = 34
-    CAN_BAR = 35
-    SUB_VER = 36
-    U_OFF = 50
-    V_OFF = 51
-    K1 = 52
-    K2 = 53
-    M_OFF = 54
-    DIR = 55
-    P_M = 80
-    XOUT = 81
+    This class combines encode/decode functions from encoding.py to provide
+    a convenient interface that follows the request-response pattern.
 
-
-class ControlMode(IntEnum):
-    """Enumeration of Damiao motor control mode."""
-
-    MIT = 1
-    POS_VEL = 2
-    VEL = 3
-    POS_FORCE = 4
-
-
-def enable_command(slave_id: int) -> can.Message:
-    """Create a CAN message to enable a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, enables the motor.
-
+    Reference: README.md High-Level Motor Class section lines 320-345
     """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC],
-        is_extended_id=False,
-    )
 
-
-def disable_command(slave_id: int) -> can.Message:
-    """Create a CAN message to disable a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, disables the motor.
-
-    """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD],
-        is_extended_id=False,
-    )
-
-
-def set_zero_command(slave_id: int) -> can.Message:
-    """Create a CAN message to set the current position of a Damiao motor as zero.
-
-    Args:
-        slave_id (int): The slave ID of the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, sets the motor's current position
-            as its zero reference.
-
-    """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE],
-        is_extended_id=False,
-    )
-
-
-def refresh_command(slave_id: int) -> can.Message:
-    """Create a CAN message to refresh the state of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, prompts the motor
-            to send its current state.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            0xCC,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-        ],
-        is_extended_id=False,
-    )
-
-
-def _map_float_to_uint(val: float, min_val: float, max_val: float, bits: int) -> int:
-    if val < min_val:
-        val = min_val
-    elif val > max_val:
-        val = max_val
-
-    norm = (val - min_val) / (max_val - min_val)
-    return int(norm * ((1 << bits) - 1))
-
-
-def control_mit_command(
-    motor_type: MotorType,
-    slave_id: int,
-    kp: float,
-    kd: float,
-    q: float,
-    dq: float,
-    tau: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in MIT mode.
-
-    Args:
-        motor_type (MotorType): The type of the motor.
-        slave_id (int): Slave ID for the target motor.
-        kp (float): Proportional gain.
-        kd (float): Derivative gain.
-        q (float): Desired position (radians).
-        dq (float): Desired velocity (radians/second).
-        tau (float): Desired torque (Nm).
-
-    Returns:
-        can.Message: A CAN message with MIT-mode control parameters.
-
-    """
-    lim = _MOTOR_LIMITS[motor_type]
-
-    kp_uint = _map_float_to_uint(kp, 0, 500, 12)
-    kd_uint = _map_float_to_uint(kd, 0, 500, 12)
-    q_uint = _map_float_to_uint(q, -lim.q_max, lim.q_max, 16)
-    dq_uint = _map_float_to_uint(dq, -lim.dq_max, lim.dq_max, 12)
-    tau_uint = _map_float_to_uint(tau, -lim.tau_max, lim.tau_max, 12)
-
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[
-            (q_uint >> 8) & 0xFF,
-            q_uint & 0xFF,
-            dq_uint >> 4,
-            ((dq_uint & 0xF) << 4) | ((kp_uint >> 8) & 0xF),
-            kp_uint & 0xFF,
-            kd_uint >> 4,
-            ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF),
-            tau_uint & 0xFF,
-        ],
-        is_extended_id=False,
-    )
-
-
-def control_pos_vel_command(
-    slave_id: int,
-    pos: float,
-    vel: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in position and velocity mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        pos (float): Desired position (radians).
-        vel (float): Desired velocity (radians/second).
-
-    Returns:
-        can.Message: A CAN message containing position and velocity control parameters.
-
-    """
-    return can.Message(
-        arbitration_id=0x100 + slave_id,
-        data=[*struct.pack("<f", float(pos)), *struct.pack("<f", float(vel))],
-        is_extended_id=False,
-    )
-
-
-def control_vel_command(
-    slave_id: int,
-    vel: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in velocity mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        vel (float): Desired velocity (radians/second).
-
-    Returns:
-        can.Message: A CAN message containing velocity control parameters.
-
-    """
-    return can.Message(
-        arbitration_id=0x200 + slave_id,
-        data=[*struct.pack("<f", float(vel)), 0x00, 0x00, 0x00, 0x00],
-        is_extended_id=False,
-    )
-
-
-def control_pos_force_command(
-    slave_id: int,
-    pos: float,
-    vel: float,
-    i_norm: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in force-position hybrid mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        pos (float): Desired position (radians).
-        vel (float): Desired velocity (radians/second).
-        i_norm (float): Desired normalized current in the range 0-1,
-            where 1 corresponds to the motor's maximum current.
-
-    Returns:
-        can.Message: A CAN message containing the position, velocity, and current
-            parameters.
-
-    """
-    if i_norm < 0:
-        i_norm = 0
-    elif i_norm > 1:
-        i_norm = 1
-
-    vel_uint = int(vel * 100)
-    i_uint = int(i_norm * 10000)
-
-    return can.Message(
-        arbitration_id=0x300 + slave_id,
-        data=[
-            *struct.pack("<f", float(pos)),
-            vel_uint & 0xFF,
-            vel_uint >> 8,
-            i_uint & 0xFF,
-            i_uint >> 8,
-        ],
-        is_extended_id=False,
-    )
-
-
-def read_register_command(slave_id: int, address: RegisterAddress) -> can.Message:
-    """Create a CAN message to read a specific register from a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        address (RegisterAddress): The register address to read.
-
-    Returns:
-        can.Message: A CAN message that, when sent, requests the register value.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            _READ_REGISTER_CODE,
-            address,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-        ],
-        is_extended_id=False,
-    )
-
-
-def write_register_command(
-    slave_id: int, address: RegisterAddress, value: float, *, as_float: bool = False
-) -> can.Message:
-    """Create a CAN message to write a value to a specific register of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID of the target motor.
-        address (RegisterAddress): The register address to write.
-        value (float): The value to write to the register.
-        as_float (bool, optional): If True, the value is written as a 32-bit float.
-
-    Returns:
-        can.Message: A CAN message that, when sent, writes the value to the register.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            _WRITE_REGISTER_CODE,
-            address,
-            *(
-                struct.pack("<f", float(value))
-                if as_float
-                else struct.pack("<I", int(value))
-            ),
-        ],
-        is_extended_id=False,
-    )
-
-
-def set_control_mode_command(slave_id: int, mode: ControlMode) -> can.Message:
-    """Create a CAN message to set the control mode of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID of the target motor.
-        mode (ControlMode): The control mode to set.
-
-    Returns:
-        can.Message: A CAN message that, when sent, sets the motor's control mode.
-
-    """
-    return write_register_command(slave_id, RegisterAddress.CTRL_MODE, mode)
-
-
-class Response:
-    """Base class for responses from Damiao motors."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a Response object from a CAN message.
+    def __init__(self, bus: Bus, motor_id: int, motor_type: MotorType) -> None:
+        """Initialize a Motor instance.
 
         Args:
-            msg (can.Message): The CAN message received from the motor.
+            bus: CAN bus instance for message transmission and reception
+            motor_id: Motor slave ID for CAN communication
+            motor_type: Motor type enum for automatic limit configuration
+
+        Reference: README.md Motor class constructor pattern lines 330-332
 
         """
-        self.master_id = msg.arbitration_id
+        self.bus = bus
+        self.motor_id = motor_id
+        self.motor_type = motor_type
+        self.motor_limits = MOTOR_LIMITS[motor_type]
 
 
-class UnknownResponse(Response):
-    """Represents an unknown response from a Damiao motor."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize an UnknownResponse object from a CAN message.
-
-        Args:
-            msg (can.Message): The CAN message received from the motor.
-
-        """
-        super().__init__(msg)
-        self.data = msg.data
-
-
-class MotorState(NamedTuple):
-    """Represents a state data from a Damiao motor."""
-
-    q: float
-    dq: float
-    tau: float
-    t_mos: int
-    t_rotor: int
-
-
-def _map_uint_to_float(val: int, min_val: float, max_val: float, bits: int) -> float:
-    norm = val / ((1 << bits) - 1)
-    return min_val + norm * (max_val - min_val)
-
-
-class StateResponse(Response):
-    """Represents a response containing state data from a Damiao motor."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a StateResponse object from a CAN message.
+    def set_control_mode(
+        self, mode: ControlMode
+    ) -> Coroutine[Any, Any, RegisterResponse]:
+        """Set motor control mode. Returns coroutine to be awaited.
 
         Args:
-            msg (can.Message): The CAN message received from the motor.
-
-        """
-        super().__init__(msg)
-        self.q = (msg.data[1] << 8) | msg.data[2]
-        self.dq = (msg.data[3] << 4) | (msg.data[4] >> 4)
-        self.tau = ((msg.data[4] & 0xF) << 8) | msg.data[5]
-        self.t_mos = msg.data[6]
-        self.t_rotor = msg.data[7]
-
-    def as_motor(self, motor_type: MotorType) -> MotorState:
-        """Convert the raw state values to scaled motor units.
-
-        Args:
-            motor_type (MotorType): The type of the motor.
+            mode: Control mode to set (MIT, POS_VEL, VEL, TORQUE_POS)
 
         Returns:
-            MotorState: A scaled motor state.
+            Coroutine that yields RegisterResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
 
         """
-        lim = _MOTOR_LIMITS[motor_type]
-        return MotorState(
-            q=_map_uint_to_float(self.q, -lim.q_max, lim.q_max, 16),
-            dq=_map_uint_to_float(self.dq, -lim.dq_max, lim.dq_max, 12),
-            tau=_map_uint_to_float(self.tau, -lim.tau_max, lim.tau_max, 12),
-            t_mos=self.t_mos,
-            t_rotor=self.t_rotor,
-        )
+        # Encode control mode and send request
+        encode_set_control_mode(self.bus, self.motor_id, mode)
+
+        # Return coroutine from asynchronous decode function
+        return decode_register_value(self.bus)
 
 
-class RegisterResponse(Response):
-    """Represents a response containing register data from a Damiao motor."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a RegisterResponse object from a CAN message.
+    def control_mit(self, params: MitControlParams) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in MIT mode. Returns coroutine to be awaited.
 
         Args:
-            msg (can.Message): The CAN message received from the motor.
-
-        """
-        super().__init__(msg)
-        self.slave_id = msg.data[0] | (msg.data[1] << 8)
-        self.register = RegisterAddress(msg.data[3])
-        self.data = bytes(msg.data[4:8])
-
-    def as_int(self) -> int:
-        """Interpret the register data as a 32-bit unsigned integer.
+            params: MIT control parameters dataclass
 
         Returns:
-            int: The register value as an integer.
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
 
         """
-        return struct.unpack("<I", self.data)[0]
+        # Encode MIT control and send request
+        encode_control_mit(self.bus, self.motor_id, self.motor_limits, params)
 
-    def as_float(self) -> float:
-        """Interpret the register data as a 32-bit float.
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
+
+
+    def control_pos_vel(
+        self, params: PosVelControlParams
+    ) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in position/velocity mode. Returns coroutine to be awaited.
+
+        Args:
+            params: Position and velocity control parameters dataclass
 
         Returns:
-            float: The register value as a float.
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
 
         """
-        return struct.unpack("<f", self.data)[0]
+        # Encode position/velocity control and send request
+        encode_control_pos_vel(self.bus, self.motor_id, params)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
 
 
-def decode_response(msg: can.Message) -> Response:
-    """Decode a CAN message into the appropriate Response subclass.
+    def control_vel(self, params: VelControlParams) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in velocity mode. Returns coroutine to be awaited.
 
-    Args:
-        msg (can.Message): The CAN message to decode.
+        Args:
+            params: Velocity control parameters dataclass
 
-    Returns:
-        Response: Either a RegisterResponse or UnknownResponse depending on the command.
+        Returns:
+            Coroutine that yields MotorState when awaited
 
-    """
-    if msg.data[0] == _STATE_CODE:
-        return StateResponse(msg)
-    if msg.data[2] == _READ_REGISTER_CODE or msg.data[2] == _WRITE_REGISTER_CODE:
-        return RegisterResponse(msg)
+        Reference: README.md Motor class method pattern lines 334-340
 
-    return UnknownResponse(msg)
+        """
+        # Encode velocity control and send request
+        encode_control_vel(self.bus, self.motor_id, params)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
+
+
+    def control_pos_force(
+        self, params: PosForceControlParams
+    ) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in position/force mode. Returns coroutine to be awaited.
+
+        Args:
+            params: Position and force control parameters dataclass
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode position/force control and send request
+        encode_control_pos_force(self.bus, self.motor_id, params)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
+
+
+    def enable(self) -> Coroutine[Any, Any, AckResponse]:
+        """Enable motor. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields AckResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode enable command and send request
+        encode_enable_motor(self.bus, self.motor_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_acknowledgment(self.bus)
+
+
+    def enable_legacy(
+        self, control_mode: ControlMode
+    ) -> Coroutine[Any, Any, AckResponse]:
+        """Enable motor with legacy firmware. Returns coroutine to be awaited.
+
+        Args:
+            control_mode: Control mode for legacy enable calculation
+
+        Returns:
+            Coroutine that yields AckResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode legacy enable command and send request
+        encode_enable_motor_legacy(self.bus, self.motor_id, control_mode)
+
+        # Return coroutine from asynchronous decode function
+        return decode_acknowledgment(self.bus)
+
+
+    def disable(self) -> Coroutine[Any, Any, AckResponse]:
+        """Disable motor. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields AckResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode disable command and send request
+        encode_disable_motor(self.bus, self.motor_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_acknowledgment(self.bus)
+
+
+    def set_zero_position(self) -> Coroutine[Any, Any, AckResponse]:
+        """Set motor zero position. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields AckResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode set zero position command and send request
+        encode_set_zero_position(self.bus, self.motor_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_acknowledgment(self.bus)
+
+
+    def read_register(
+        self, register_address: RegisterAddress
+    ) -> Coroutine[Any, Any, RegisterResponse]:
+        """Read motor register value. Returns coroutine to be awaited.
+
+        Args:
+            register_address: Register address to read
+
+        Returns:
+            Coroutine that yields RegisterResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode read register command and send request
+        encode_read_register(self.bus, self.motor_id, register_address)
+
+        # Return coroutine from asynchronous decode function
+        return decode_register_value(self.bus)
+
+
+    def write_register_int(
+        self, register_address: RegisterAddress, value: int
+    ) -> Coroutine[Any, Any, RegisterResponse]:
+        """Write motor register value as integer. Returns coroutine to be awaited.
+
+        Args:
+            register_address: Register address to write
+            value: Integer value to write to register
+
+        Returns:
+            Coroutine that yields RegisterResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode write register integer command and send request
+        encode_write_register_int(self.bus, self.motor_id, register_address, value)
+
+        # Return coroutine from asynchronous decode function
+        return decode_register_value(self.bus)
+
+
+    def write_register_float(
+        self, register_address: RegisterAddress, value: float
+    ) -> Coroutine[Any, Any, RegisterResponse]:
+        """Write motor register value as float. Returns coroutine to be awaited.
+
+        Args:
+            register_address: Register address to write
+            value: Float value to write to register
+
+        Returns:
+            Coroutine that yields RegisterResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode write register float command and send request
+        encode_write_register_float(self.bus, self.motor_id, register_address, value)
+
+        # Return coroutine from asynchronous decode function
+        return decode_register_value(self.bus)
+
+
+    def save_parameters(self) -> Coroutine[Any, Any, AckResponse]:
+        """Save motor parameters to flash. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields AckResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode save parameters command and send request
+        encode_save_parameters(self.bus, self.motor_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_acknowledgment(self.bus)
+
+
+    def refresh_status(self) -> Coroutine[Any, Any, MotorState]:
+        """Refresh motor status. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode refresh status command and send request
+        encode_refresh_status(self.bus, self.motor_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
 
 
 __all__ = [
+    "MOTOR_LIMITS",
+    "AckResponse",
     "ControlMode",
+    "MitControlParams",
+    "Motor",
+    "MotorLimits",
     "MotorState",
     "MotorType",
+    "PosForceControlParams",
+    "PosVelControlParams",
     "RegisterAddress",
     "RegisterResponse",
-    "Response",
-    "StateResponse",
-    "UnknownResponse",
-    "control_mit_command",
-    "control_pos_force_command",
-    "control_pos_vel_command",
-    "control_vel_command",
-    "decode_response",
-    "disable_command",
-    "enable_command",
-    "read_register_command",
-    "refresh_command",
-    "set_control_mode_command",
-    "set_zero_command",
-    "write_register_command",
+    "VelControlParams",
 ]

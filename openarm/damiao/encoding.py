@@ -186,6 +186,8 @@ def encode_set_control_mode(bus: Bus, motor_id: int, mode: ControlMode) -> None:
         motor_id: Motor slave ID
         mode: Control mode to set (MIT, POS_VEL, VEL, TORQUE_POS)
 
+    Decode with: decode_register_value(bus)
+
     Reference: DM_CAN.py switchControlMode function lines 361-380
 
     """
@@ -236,6 +238,8 @@ def encode_control_mit(
         motor_id: Motor slave ID
         motor_limits: Motor physical limits dataclass for parameter scaling
         params: MIT control parameters dataclass
+
+    Decode with: decode_motor_state(bus, motor_id, motor_limits)
 
     Reference: DM_CAN.py controlMIT function lines 90-123
 
@@ -348,6 +352,8 @@ def encode_read_register(
         motor_id: Motor slave ID
         register_address: Register address to read
 
+    Decode with: decode_register_value(bus)
+
     Reference: DM_CAN.py __read_RID_param function lines 381-385
 
     """
@@ -378,6 +384,8 @@ def encode_write_register_int(
         motor_id: Motor slave ID
         register_address: Register address to write
         value: Integer value to write to register
+
+    Decode with: decode_register_value(bus)
 
     Reference: DM_CAN.py __write_motor_param function lines 387-397 (int path)
 
@@ -410,6 +418,8 @@ def encode_write_register_float(
         register_address: Register address to write
         value: Float value to write to register
 
+    Decode with: decode_register_value(bus)
+
     Reference: DM_CAN.py __write_motor_param function lines 387-397 (float path)
 
     """
@@ -437,6 +447,8 @@ def encode_save_parameters(bus: Bus, motor_id: int) -> None:
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
 
+    Decode with: decode_acknowledgment(bus)
+
     Reference: DM_CAN.py save_motor_param function lines 420-431
 
     """
@@ -462,6 +474,8 @@ def encode_refresh_status(bus: Bus, motor_id: int) -> None:
     Args:
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
+
+    Decode with: decode_motor_state(bus, motor_id, motor_limits)
 
     Reference: DM_CAN.py refresh_motor_status function lines 446-455
 
@@ -522,6 +536,8 @@ def encode_control_pos_vel(
         motor_id: Motor slave ID
         params: Position and velocity control parameters dataclass
 
+    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+
     Reference: DM_CAN.py control_Pos_Vel function lines 130-148
 
     """
@@ -543,6 +559,8 @@ def encode_control_vel(bus: Bus, motor_id: int, params: VelControlParams) -> Non
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
         params: Velocity control parameters dataclass
+
+    Decode with: decode_motor_state(bus, motor_id, motor_limits)
 
     Reference: DM_CAN.py control_Vel function lines 150-163
 
@@ -567,6 +585,8 @@ def encode_control_pos_force(
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
         params: Position and force control parameters dataclass
+
+    Decode with: decode_motor_state(bus, motor_id, motor_limits)
 
     Reference: DM_CAN.py control_pos_force function lines 165-186
 
@@ -599,6 +619,8 @@ def encode_enable_motor(bus: Bus, motor_id: int) -> None:
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
 
+    Decode with: decode_acknowledgment(bus)
+
     Reference: DM_CAN.py enable function lines 188-195
 
     """
@@ -620,6 +642,8 @@ def encode_disable_motor(bus: Bus, motor_id: int) -> None:
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
 
+    Decode with: decode_acknowledgment(bus)
+
     Reference: DM_CAN.py disable function lines 209-215
 
     """
@@ -640,6 +664,8 @@ def encode_set_zero_position(bus: Bus, motor_id: int) -> None:
     Args:
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
+
+    Decode with: decode_acknowledgment(bus)
 
     Reference: DM_CAN.py set_zero_position function lines 217-223
 
@@ -664,6 +690,8 @@ def encode_enable_motor_legacy(
         bus: CAN bus instance for message transmission
         motor_id: Motor slave ID
         control_mode: Control mode for legacy enable calculation
+
+    Decode with: decode_acknowledgment(bus)
 
     Reference: DM_CAN.py enable_old function lines 197-207
 
