@@ -8,36 +8,30 @@ pip install -e .
 
 # Planned Architecture
 
-## Project Structure
+Simple modular architecture focused on getting basic arm control working first.
 
-Single Python package with submodules organized as subdirectories.
+```
+openarm/
+├── transport/        # CAN bus communication
+├── motors/           # Motor control (Damiao)
+├── control/          # High-level arm control
+├── kinematics/       # Forward/inverse kinematics & gravity compensation
+└── simulation/       # Physics simulation
+```
 
 ## Core Modules
 
-### `bus`
-CAN bus abstraction layer enabling asynchronous read operations while sending CAN frames.
+### `transport`
+CAN bus communication layer. Handles SocketCAN, virtual CAN, and network bridges.
 
-### `damiao`
-Damiao motor communication and control:
-- CAN message protocols
-- CLI tools for motor management (register read/write, ID changes, testing)
+### `motors`
+Motor control starting with Damiao servos. Extensible to other motor types.
 
-### `openarm`
-High-level arm control abstraction:
-- Joint position control across all motors
-- Gripper control
-- Whole-arm commands (e.g., zero position setting)
-- CLI tools for arm-level operations
+### `control`
+High-level arm control. Coordinates multiple motors as unified arm.
 
-#### Submodules
+### `kinematics`
+Forward/inverse kinematics and gravity compensation. Robot pose calculations and dynamics.
 
-- **`ros`**: ROS 2 wrapper exposing OpenArm functionality
-- **`description`**: Robot URDF files
-- **`sim`**: MuJoCo-based simulation
-- **`ik`**: Inverse kinematics solvers (starting with IKFast)
-- **`gravity_comp`**: Gravity compensation controllers (starting with MuJoCo KDL)
-
-## Additional Tools
-
-### `netcan`
-Network CAN bridge exposing CAN bus over TCP/WebSocket for remote device communication.
+### `simulation`
+Physics simulation using MuJoCo for testing and development.
