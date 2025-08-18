@@ -24,8 +24,9 @@ This package follows a structured approach to organize the codebase:
 ### Design Principles
 
 The architecture separates concerns into distinct layers:
+
 - **Interface Layer** (`__init__.py`) - What users interact with
-- **Implementation Layer** (`encoding.py`) - How things work internally  
+- **Implementation Layer** (`encoding.py`) - How things work internally
 - **Tool Layer** (`__main__.py`) - Command-line and utility access
 
 This structure promotes maintainability and clear separation of responsibilities.
@@ -48,74 +49,83 @@ import can
 import struct
 from openarm.bus import Bus
 
+
 # Encoding (synchronous)
 def encode_set_position(bus: Bus, motor_id: int, position: float) -> None:
     # Pack position value as little-endian 32-bit binary data
     # Format: '<f' = little-endian (<) + float (f)
     # Reference: Position command format in docs/damiao_protocol.pdf section 3.1
     # IMPORTANT: All binary operations MUST include comments explaining format and byte order
-    data = struct.pack('<f', position)
-    
+    data = struct.pack("<f", position)
+
     # Construct CAN message with motor ID as arbitration ID
     # Reference: CAN ID mapping table in docs/damiao_protocol.pdf section 3.2
     message = can.Message(arbitration_id=motor_id, data=data)
     bus.send(message)  # Immediate transmission
 
-# Decoding (asynchronous) 
+
+# Decoding (asynchronous)
 async def decode_set_position(bus: Bus, motor_id: int) -> dict:
     # Calculate response arbitration ID from motor ID (static offset from docs)
     # Reference: Response ID mapping in docs/damiao_protocol.pdf section 4.1
     response_id = motor_id + 0x100  # Static offset defined in protocol
-    
+
     # Wait for CAN message with calculated arbitration ID (blocking call in thread pool)
     # Set timeout to prevent indefinite blocking
     # Reference: Timeout values in docs/damiao_protocol.pdf section 5.1
     message = bus.recv(response_id, timeout=0.1)
-    
+
     # Unpack binary response data according to protocol format
     # Format: '<f' = little-endian float for position feedback
     # Reference: Response format tables in docs/damiao_protocol.pdf section 4.2
-    position = struct.unpack('<f', message.data[:4])[0]
-    return {'motor_id': motor_id, 'position': position}
-
+    position = struct.unpack("<f", message.data[:4])[0]
+    return {"motor_id": motor_id, "position": position}
 ```
 
 ### Naming Conventions
 
 #### Function Naming Pattern
+
 Encode/decode functions follow a consistent naming pattern as request-response pairs:
 
 - **`encode_*`** - Synchronous functions that encode data and send CAN requests
 - **`decode_*`** - Asynchronous functions that receive CAN responses and decode data
 
 #### Generic vs Specific Decoders
+
 When multiple commands return identical or very similar response formats, use generic decoders instead of creating duplicate decode functions:
 
 - **Generic decoders** - For common response patterns shared across multiple commands
 - **Specific decoders** - Only when response format is unique to that command
 
 **Common Generic Decoder Types:**
+
 - `decode_motor_state` - For commands returning position/velocity/torque data
-- `decode_acknowledgment` - For commands returning simple success/error status  
+- `decode_acknowledgment` - For commands returning simple success/error status
 - `decode_register_value` - For register read operations returning data values
 - `decode_command_response` - For standard command confirmations
 
 #### Pairing Convention
+
 Each command typically has a corresponding encode/decode pair with matching names:
 
 **Position Commands:**
+
 - `encode_set_position` / `decode_set_position`
 - `encode_get_position` / `decode_get_position`
 
 **Velocity Commands:**
+
 - `encode_set_velocity` / `decode_set_velocity`
 - `encode_get_velocity` / `decode_get_velocity`
 
 **Configuration Commands:**
+
 - `encode_configure_motor` / `decode_configure_motor`
 - `encode_get_config` / `decode_get_config`
 
 **Control Commands:**
+
 - `encode_enable_motor` / `decode_enable_motor`
 - `encode_disable_motor` / `decode_disable_motor`
 - `encode_reset_motor` / `decode_reset_motor`
@@ -124,15 +134,18 @@ Each command typically has a corresponding encode/decode pair with matching name
 Only use generic decoders when you identify that multiple commands return identical response formats:
 
 **Example - Simple Acknowledgments:**
+
 - `encode_enable_motor` / `decode_acknowledgment`
 - `encode_disable_motor` / `decode_acknowledgment`
 - `encode_reset_motor` / `decode_acknowledgment`
 
 **Example - Register Operations:**
+
 - `encode_read_register` / `decode_register_value`
 - `encode_write_register` / `decode_register_value`
 
 #### Key Principles
+
 - **Default pairing**: `encode_X` pairs with `decode_X` for most commands
 - **Generic decoders only when needed**: Use generic decoders only when multiple commands return identical response formats
 - **Generic decoder naming**: Use descriptive names like `decode_acknowledgment`, `decode_register_value`
@@ -182,21 +195,26 @@ message = bus.recv(response_id)  # BAD: Missing timeout parameter
 ## Data Structures for Complex Encoding/Decoding
 
 ### Simple Data Types
+
 For simple data types (float, int), functions can accept them directly:
+
 ```python
 # Simple data - accept float directly
 def set_position(bus: Bus, motor_id: int, position: float) -> None:
     # Pack position as little-endian 32-bit binary data
     # Reference: Position command format in docs/damiao_protocol.pdf section 3.1
-    data = struct.pack('<f', position)
+    data = struct.pack("<f", position)
     message = can.Message(arbitration_id=motor_id, data=data)
     bus.send(message)
 ```
 
 ### Complex Data Types - Custom Dataclasses
+
 For complex data structures, functions must handle dataclasses:
+
 ```python
 from dataclasses import dataclass
+
 
 @dataclass
 class MotorConfig:
@@ -207,25 +225,29 @@ class MotorConfig:
     pid_kd: float
     enable_limits: bool
 
+
 # Complex data - function handles dataclass
 def configure_motor(bus: Bus, motor_id: int, config: MotorConfig) -> None:
     # Pack complex dataclass into binary format
     # Reference: Configuration packet format in docs/damiao_protocol.pdf section 6.1
-    data = struct.pack('<fffff?', 
-        config.max_velocity,    # Little-endian float
-        config.max_torque,      # Little-endian float  
-        config.pid_kp,          # Little-endian float
-        config.pid_ki,          # Little-endian float
-        config.pid_kd,          # Little-endian float
-        config.enable_limits    # Boolean as byte
+    data = struct.pack(
+        "<fffff?",
+        config.max_velocity,  # Little-endian float
+        config.max_torque,  # Little-endian float
+        config.pid_kp,  # Little-endian float
+        config.pid_ki,  # Little-endian float
+        config.pid_kd,  # Little-endian float
+        config.enable_limits,  # Boolean as byte
     )
-    
+
     message = can.Message(arbitration_id=motor_id, data=data)
     bus.send(message)
 ```
 
 ### Decoding Complex Data
+
 For complex response data, return dataclasses:
+
 ```python
 @dataclass
 class MotorStatus:
@@ -235,21 +257,24 @@ class MotorStatus:
     temperature: float
     error_code: int
 
+
 async def get_motor_status(bus: Bus, motor_id: int) -> MotorStatus:
     response_id = motor_id + 0x100
     message = bus.recv(response_id, timeout=0.1)
-    
+
     # Unpack complex response into dataclass
     # Format: position(f) + velocity(f) + torque(f) + temperature(f) + error_code(H)
     # Reference: Status packet format in docs/damiao_protocol.pdf section 6.2
-    position, velocity, torque, temperature, error_code = struct.unpack('<ffffH', message.data)
-    
+    position, velocity, torque, temperature, error_code = struct.unpack(
+        "<ffffH", message.data
+    )
+
     return MotorStatus(
         position=position,
-        velocity=velocity, 
+        velocity=velocity,
         torque=torque,
         temperature=temperature,
-        error_code=error_code
+        error_code=error_code,
     )
 ```
 
@@ -285,11 +310,13 @@ def configure_motor(bus: Bus, motor_id: int, max_vel: float, max_torque: float,
 ## Usage Examples
 
 ### Single Command
+
 ```python
 response = await set_position(bus, motor_id=1, position=1.5)
 ```
 
 ### Multiple Async Requests (Concurrent)
+
 ```python
 import asyncio
 
@@ -326,18 +353,20 @@ from typing import Coroutine, Any
 from openarm.bus import Bus
 from .encoding import encode_set_position, decode_set_position
 
+
 class Motor:
     def __init__(self, bus: Bus, motor_id: int):
         self.bus = bus
         self.motor_id = motor_id
-    
+
     def set_position(self, position: float) -> Coroutine[Any, Any, dict]:
         """Set motor position. Returns coroutine to be awaited."""
         # Encode position and send request
         encode_set_position(self.bus, self.motor_id, position)
-        
+
         # Return coroutine from asynchronous decode function
         return decode_set_position(self.bus, self.motor_id)
+
 
 # Usage:
 motor = Motor(bus, motor_id=1)

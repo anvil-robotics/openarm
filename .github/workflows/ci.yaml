@@ -23,7 +23,7 @@ jobs:
           pip install build ruff
 
       - name: Check Formatting
-        run: ruff format --diff
+        uses: dprint/check@v2.3
 
       - name: Check Lint
         run: ruff check
