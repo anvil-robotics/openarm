@@ -178,23 +178,6 @@ class PosForceControlParams:
     current_norm: float  # Normalized current 0-1 (scaled to 0-10000)
 
 
-def encode_set_control_mode(bus: Bus, motor_id: int, mode: ControlMode) -> None:
-    """Set motor control mode. Sends CAN message to change control mode.
-
-    Args:
-        bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
-        mode: Control mode to set (MIT, POS_VEL, VEL, TORQUE_POS)
-
-    Decode with: decode_register_value(bus)
-
-    Reference: DM_CAN.py switchControlMode function lines 361-380
-
-    """
-    # Control mode is stored in register 10 as an integer value
-    # Reference: DM_CAN.py switchControlMode using __write_motor_param with RID=10
-    encode_write_register_int(bus, motor_id, RegisterAddress.CTRL_MODE, int(mode))
-
 
 async def decode_register_value(bus: Bus) -> RegisterResponse:
     """Decode register write response. Waits for confirmation response.
