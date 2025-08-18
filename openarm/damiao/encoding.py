@@ -7,6 +7,7 @@ including commands for setting control mode and MIT control.
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import Generic, TypeVar
 
 import can
 
@@ -106,29 +107,19 @@ class MitControlParams:
     tau: float  # Desired torque in Nm
 
 
+T = TypeVar("T", int, float)  # Type variable for register value types
+
+
 @dataclass
-class RegisterIntResponse:
-    """Register operation response data from Damiao motor with integer value.
+class RegisterResponse(Generic[T]):
+    """Register operation response data from Damiao motor.
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
     """
 
     motor_id: int       # Motor slave ID that responded
     register: int       # Register address that was accessed
-    value: int          # Register value as integer (uint32)
-    command: int        # Command code (0x55 for write, 0x33 for read)
-
-
-@dataclass
-class RegisterFloatResponse:
-    """Register operation response data from Damiao motor with float value.
-
-    Reference: DM_CAN.py __process_set_param_packet function lines 291-315
-    """
-
-    motor_id: int       # Motor slave ID that responded
-    register: int       # Register address that was accessed
-    value: float        # Register value as float (float32)
+    value: T            # Register value (int for uint32, float for float32)
     command: int        # Command code (0x55 for write, 0x33 for read)
 
 
@@ -192,15 +183,14 @@ class PosForceControlParams:
 
 
 
-async def decode_register_int(bus: Bus) -> RegisterIntResponse:
+async def decode_register_int(bus: Bus) -> RegisterResponse[int]:
     """Decode register response with integer value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
 
     Returns:
-        RegisterIntResponse: Register response dataclass with motor_id, register,
-            integer value, and command
+        RegisterResponse[int]: Register response with integer value
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -217,7 +207,7 @@ async def decode_register_int(bus: Bus) -> RegisterIntResponse:
         "<HBBI", message.data
     )
 
-    return RegisterIntResponse(
+    return RegisterResponse[int](
         motor_id=slave_id,
         register=register_id,
         value=register_value,
@@ -225,15 +215,14 @@ async def decode_register_int(bus: Bus) -> RegisterIntResponse:
     )
 
 
-async def decode_register_float(bus: Bus) -> RegisterFloatResponse:
+async def decode_register_float(bus: Bus) -> RegisterResponse[float]:
     """Decode register response with float value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
 
     Returns:
-        RegisterFloatResponse: Register response dataclass with motor_id, register,
-            float value, and command
+        RegisterResponse[float]: Register response with float value
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -250,7 +239,7 @@ async def decode_register_float(bus: Bus) -> RegisterFloatResponse:
         "<HBBf", message.data
     )
 
-    return RegisterFloatResponse(
+    return RegisterResponse[float](
         motor_id=slave_id,
         register=register_id,
         value=register_value,
