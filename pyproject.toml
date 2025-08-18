@@ -22,4 +22,4 @@ include = ["openarm*"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "D203", "D213", "PLR0913", "PLR0915"]
+ignore = ["COM812", "D203", "D213", "PLR0913", "PLR0915", "S101"]
