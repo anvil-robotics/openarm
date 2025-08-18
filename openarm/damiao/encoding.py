@@ -107,15 +107,28 @@ class MitControlParams:
 
 
 @dataclass
-class RegisterResponse:
-    """Register operation response data from Damiao motor.
+class RegisterIntResponse:
+    """Register operation response data from Damiao motor with integer value.
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
     """
 
     motor_id: int       # Motor slave ID that responded
     register: int       # Register address that was accessed
-    value: int          # Register value
+    value: int          # Register value as integer (uint32)
+    command: int        # Command code (0x55 for write, 0x33 for read)
+
+
+@dataclass
+class RegisterFloatResponse:
+    """Register operation response data from Damiao motor with float value.
+
+    Reference: DM_CAN.py __process_set_param_packet function lines 291-315
+    """
+
+    motor_id: int       # Motor slave ID that responded
+    register: int       # Register address that was accessed
+    value: float        # Register value as float (float32)
     command: int        # Command code (0x55 for write, 0x33 for read)
 
 
@@ -179,15 +192,15 @@ class PosForceControlParams:
 
 
 
-async def decode_register_value(bus: Bus) -> RegisterResponse:
-    """Decode register write response. Waits for confirmation response.
+async def decode_register_int(bus: Bus) -> RegisterIntResponse:
+    """Decode register response with integer value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
 
     Returns:
-        RegisterResponse: Register response dataclass with motor_id, register,
-            value, and command
+        RegisterIntResponse: Register response dataclass with motor_id, register,
+            integer value, and command
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -197,13 +210,47 @@ async def decode_register_value(bus: Bus) -> RegisterResponse:
     # Reference: Register response handling in DM_CAN.py switchControlMode retry loop
     message = bus.recv(0x7FF, timeout=0.1)
 
-    # Unpack register response data according to protocol format
-    # Format: '<HBBBBBB' = little-endian: motor_id(H=uint16) + response_data(5*B)
+    # Unpack register response data in single operation
+    # Format: '<HBBI' = motor_id(H) + command_code(B) + register_id(B) + value(I)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
-    unpacked = struct.unpack("<HBBBBBB", message.data)
-    slave_id, command_code, register_id, register_value = unpacked[:4]
+    slave_id, command_code, register_id, register_value = struct.unpack(
+        "<HBBI", message.data
+    )
 
-    return RegisterResponse(
+    return RegisterIntResponse(
+        motor_id=slave_id,
+        register=register_id,
+        value=register_value,
+        command=command_code,
+    )
+
+
+async def decode_register_float(bus: Bus) -> RegisterFloatResponse:
+    """Decode register response with float value. Waits for confirmation response.
+
+    Args:
+        bus: CAN bus instance for message reception
+
+    Returns:
+        RegisterFloatResponse: Register response dataclass with motor_id, register,
+            float value, and command
+
+    Reference: DM_CAN.py __process_set_param_packet function lines 291-315
+
+    """
+    # Wait for register response with master arbitration ID 0x7FF
+    # Timeout to prevent indefinite blocking
+    # Reference: Register response handling in DM_CAN.py switchControlMode retry loop
+    message = bus.recv(0x7FF, timeout=0.1)
+
+    # Unpack register response data in single operation
+    # Format: '<HBBf' = motor_id(H) + command_code(B) + register_id(B) + value(f)
+    # Reference: Register response format in DM_CAN.py __process_set_param_packet
+    slave_id, command_code, register_id, register_value = struct.unpack(
+        "<HBBf", message.data
+    )
+
+    return RegisterFloatResponse(
         motor_id=slave_id,
         register=register_id,
         value=register_value,
@@ -335,7 +382,7 @@ def encode_read_register(
         motor_id: Motor slave ID
         register_address: Register address to read
 
-    Decode with: decode_register_value(bus)
+    Decode with: decode_register_int(bus) or decode_register_float(bus)
 
     Reference: DM_CAN.py __read_RID_param function lines 381-385
 
@@ -368,7 +415,7 @@ def encode_write_register_int(
         register_address: Register address to write
         value: Integer value to write to register
 
-    Decode with: decode_register_value(bus)
+    Decode with: decode_register_int(bus) or decode_register_float(bus)
 
     Reference: DM_CAN.py __write_motor_param function lines 387-397 (int path)
 
@@ -401,7 +448,7 @@ def encode_write_register_float(
         register_address: Register address to write
         value: Float value to write to register
 
-    Decode with: decode_register_value(bus)
+    Decode with: decode_register_int(bus) or decode_register_float(bus)
 
     Reference: DM_CAN.py __write_motor_param function lines 387-397 (float path)
 
