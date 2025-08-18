@@ -88,8 +88,20 @@ Encode/decode functions follow a consistent naming pattern as request-response p
 - **`encode_*`** - Synchronous functions that encode data and send CAN requests
 - **`decode_*`** - Asynchronous functions that receive CAN responses and decode data
 
+#### Generic vs Specific Decoders
+When multiple commands return identical or very similar response formats, use generic decoders instead of creating duplicate decode functions:
+
+- **Generic decoders** - For common response patterns shared across multiple commands
+- **Specific decoders** - Only when response format is unique to that command
+
+**Common Generic Decoder Types:**
+- `decode_motor_state` - For commands returning position/velocity/torque data
+- `decode_acknowledgment` - For commands returning simple success/error status  
+- `decode_register_value` - For register read operations returning data values
+- `decode_command_response` - For standard command confirmations
+
 #### Pairing Convention
-Each command has a corresponding encode/decode pair with matching names:
+Each command typically has a corresponding encode/decode pair with matching names:
 
 **Position Commands:**
 - `encode_set_position` / `decode_set_position`
@@ -108,8 +120,22 @@ Each command has a corresponding encode/decode pair with matching names:
 - `encode_disable_motor` / `decode_disable_motor`
 - `encode_reset_motor` / `decode_reset_motor`
 
+**Generic Decoders (When Multiple Commands Share Response Format):**
+Only use generic decoders when you identify that multiple commands return identical response formats:
+
+**Example - Simple Acknowledgments:**
+- `encode_enable_motor` / `decode_acknowledgment`
+- `encode_disable_motor` / `decode_acknowledgment`
+- `encode_reset_motor` / `decode_acknowledgment`
+
+**Example - Register Operations:**
+- `encode_read_register` / `decode_register_value`
+- `encode_write_register` / `decode_register_value`
+
 #### Key Principles
-- **Function names must match**: `encode_X` pairs with `decode_X`
+- **Default pairing**: `encode_X` pairs with `decode_X` for most commands
+- **Generic decoders only when needed**: Use generic decoders only when multiple commands return identical response formats
+- **Generic decoder naming**: Use descriptive names like `decode_acknowledgment`, `decode_register_value`
 - **Encode is synchronous**: Immediate sending, no async/await
 - **Decode is asynchronous**: Waiting for response requires async/await
 - **Clear responsibility**: Encode handles sending, decode handles receiving
