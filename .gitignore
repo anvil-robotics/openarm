@@ -2,6 +2,7 @@
 !.git*
 
 __pycache__
+apidocs
 dist
 
 *.egg-info

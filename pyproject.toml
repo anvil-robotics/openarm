@@ -13,6 +13,13 @@ dependencies = ["python-can"]
 [project.scripts]
 damiao = "openarm.damiao.__main__:_main"
 
+[tool.pydoctor]
+add-package = ["openarm"]
+project-name = "OpenArm"
+docformat = "google"
+theme = "readthedocs"
+warnings-as-errors = true
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["openarm*"]
