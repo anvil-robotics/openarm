@@ -19,6 +19,10 @@ project-name = "OpenArm"
 docformat = "google"
 theme = "readthedocs"
 warnings-as-errors = true
+intersphinx = [
+  "https://docs.python.org/3/objects.inv",
+  "https://python-can.readthedocs.io/en/stable/objects.inv",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
