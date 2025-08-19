@@ -112,14 +112,14 @@ class Motor:
 
     def set_control_mode(
         self, mode: ControlMode
-    ) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    ) -> Coroutine[Any, Any, int]:
         """Set motor control mode. Returns coroutine to be awaited.
 
         Args:
             mode: Control mode to set (MIT, POS_VEL, VEL, TORQUE_POS)
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         Reference: README.md Motor class method pattern lines 334-340
 
@@ -283,11 +283,11 @@ class Motor:
         return decode_acknowledgment(self.bus)
 
     # Voltage Protection Parameters
-    def get_under_voltage(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_under_voltage(self) -> Coroutine[Any, Any, float]:
         """Get motor under-voltage protection value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (10.0, 3.4E38] volts
 
@@ -297,14 +297,14 @@ class Motor:
 
     def set_under_voltage(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor under-voltage protection value. Returns coroutine to be awaited.
 
         Args:
             value: Under-voltage threshold in volts (10.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -312,11 +312,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_over_voltage(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_over_voltage(self) -> Coroutine[Any, Any, float]:
         """Get motor over-voltage protection value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.OV_VALUE)
@@ -324,14 +324,14 @@ class Motor:
 
     def set_over_voltage(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor over-voltage protection value. Returns coroutine to be awaited.
 
         Args:
             value: Over-voltage threshold in volts
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -340,11 +340,11 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Motor Characteristics
-    def get_torque_coefficient(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_torque_coefficient(self) -> Coroutine[Any, Any, float]:
         """Get motor torque coefficient. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [0.0, 3.4E38]
 
@@ -354,14 +354,14 @@ class Motor:
 
     def set_torque_coefficient(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor torque coefficient. Returns coroutine to be awaited.
 
         Args:
             value: Torque coefficient [0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -369,11 +369,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_gear_efficiency(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_gear_efficiency(self) -> Coroutine[Any, Any, float]:
         """Get gear torque efficiency. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 1.0]
 
@@ -383,14 +383,14 @@ class Motor:
 
     def set_gear_efficiency(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set gear torque efficiency. Returns coroutine to be awaited.
 
         Args:
             value: Gear efficiency factor (0.0, 1.0]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -399,11 +399,11 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Protection Limits
-    def get_over_temperature(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_over_temperature(self) -> Coroutine[Any, Any, float]:
         """Get motor over-temperature protection value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [80.0, 200) degrees Celsius
 
@@ -413,14 +413,14 @@ class Motor:
 
     def set_over_temperature(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor over-temperature protection value. Returns coroutine to be awaited.
 
         Args:
             value: Over-temperature threshold in degrees Celsius [80.0, 200)
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -428,11 +428,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_over_current(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_over_current(self) -> Coroutine[Any, Any, float]:
         """Get motor over-current protection value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 1.0) normalized current
 
@@ -442,14 +442,14 @@ class Motor:
 
     def set_over_current(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor over-current protection value. Returns coroutine to be awaited.
 
         Args:
             value: Over-current threshold as normalized current (0.0, 1.0)
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -458,11 +458,11 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Mapping Limits
-    def get_position_limit(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_position_limit(self) -> Coroutine[Any, Any, float]:
         """Get motor position mapping maximum value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 3.4E38] radians
 
@@ -472,14 +472,14 @@ class Motor:
 
     def set_position_limit(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor position mapping maximum value. Returns coroutine to be awaited.
 
         Args:
             value: Position limit in radians (0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -487,11 +487,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_velocity_limit(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_velocity_limit(self) -> Coroutine[Any, Any, float]:
         """Get motor velocity mapping maximum value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 3.4E38] rad/s
 
@@ -501,14 +501,14 @@ class Motor:
 
     def set_velocity_limit(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor velocity mapping maximum value. Returns coroutine to be awaited.
 
         Args:
             value: Velocity limit in rad/s (0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -516,11 +516,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_torque_limit(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_torque_limit(self) -> Coroutine[Any, Any, float]:
         """Get motor torque mapping maximum value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 3.4E38] Nm
 
@@ -530,14 +530,14 @@ class Motor:
 
     def set_torque_limit(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor torque mapping maximum value. Returns coroutine to be awaited.
 
         Args:
             value: Torque limit in Nm (0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -546,11 +546,11 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Control Loop Parameters
-    def get_velocity_kp(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_velocity_kp(self) -> Coroutine[Any, Any, float]:
         """Get velocity loop proportional gain. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [0.0, 3.4E38]
 
@@ -560,14 +560,14 @@ class Motor:
 
     def set_velocity_kp(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set velocity loop proportional gain. Returns coroutine to be awaited.
 
         Args:
             value: Velocity loop Kp [0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -575,11 +575,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_velocity_ki(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_velocity_ki(self) -> Coroutine[Any, Any, float]:
         """Get velocity loop integral gain. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [0.0, 3.4E38]
 
@@ -589,14 +589,14 @@ class Motor:
 
     def set_velocity_ki(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set velocity loop integral gain. Returns coroutine to be awaited.
 
         Args:
             value: Velocity loop Ki [0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -604,11 +604,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_position_kp(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_position_kp(self) -> Coroutine[Any, Any, float]:
         """Get position loop proportional gain. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [0.0, 3.4E38]
 
@@ -618,14 +618,14 @@ class Motor:
 
     def set_position_kp(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set position loop proportional gain. Returns coroutine to be awaited.
 
         Args:
             value: Position loop Kp [0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -633,11 +633,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_position_ki(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_position_ki(self) -> Coroutine[Any, Any, float]:
         """Get position loop integral gain. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [0.0, 3.4E38]
 
@@ -647,14 +647,14 @@ class Motor:
 
     def set_position_ki(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set position loop integral gain. Returns coroutine to be awaited.
 
         Args:
             value: Position loop Ki [0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -663,52 +663,52 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Read-Only Motor Information
-    def get_hardware_version(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_hardware_version(self) -> Coroutine[Any, Any, int]:
         """Get motor hardware version. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.HW_VER)
         return decode_register_int(self.bus)
 
-    def get_software_version(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_software_version(self) -> Coroutine[Any, Any, int]:
         """Get motor software version. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.SW_VER)
         return decode_register_int(self.bus)
 
-    def get_serial_number(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_serial_number(self) -> Coroutine[Any, Any, int]:
         """Get motor serial number. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.SN)
         return decode_register_int(self.bus)
 
-    def get_gear_ratio(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_gear_ratio(self) -> Coroutine[Any, Any, float]:
         """Get motor gear reduction ratio. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.GR)
         return decode_register_float(self.bus)
 
     # Motion Parameters
-    def get_acceleration(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_acceleration(self) -> Coroutine[Any, Any, float]:
         """Get motor acceleration parameter. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 3.4E38)
 
@@ -718,14 +718,14 @@ class Motor:
 
     def set_acceleration(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor acceleration parameter. Returns coroutine to be awaited.
 
         Args:
             value: Acceleration parameter (0.0, 3.4E38)
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -733,11 +733,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_deceleration(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_deceleration(self) -> Coroutine[Any, Any, float]:
         """Get motor deceleration parameter. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: [-3.4E38, 0.0)
 
@@ -747,14 +747,14 @@ class Motor:
 
     def set_deceleration(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor deceleration parameter. Returns coroutine to be awaited.
 
         Args:
             value: Deceleration parameter [-3.4E38, 0.0)
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -762,11 +762,11 @@ class Motor:
         )
         return decode_register_float(self.bus)
 
-    def get_max_speed(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_max_speed(self) -> Coroutine[Any, Any, float]:
         """Get motor maximum speed parameter. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Range: (0.0, 3.4E38] rad/s
 
@@ -776,14 +776,14 @@ class Motor:
 
     def set_max_speed(
         self, value: float
-    ) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    ) -> Coroutine[Any, Any, float]:
         """Set motor maximum speed parameter. Returns coroutine to be awaited.
 
         Args:
             value: Maximum speed in rad/s (0.0, 3.4E38]
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         """
         encode_write_register_float(
@@ -792,11 +792,11 @@ class Motor:
         return decode_register_float(self.bus)
 
     # Communication Parameters
-    def get_master_id(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_master_id(self) -> Coroutine[Any, Any, int]:
         """Get motor feedback ID (Master ID). Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         Range: [0, 0x7FF]
 
@@ -804,14 +804,14 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.MST_ID)
         return decode_register_int(self.bus)
 
-    def set_master_id(self, value: int) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def set_master_id(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor feedback ID (Master ID). Returns coroutine to be awaited.
 
         Args:
             value: Master ID [0, 0x7FF]
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_write_register_int(
@@ -819,11 +819,11 @@ class Motor:
         )
         return decode_register_int(self.bus)
 
-    def get_slave_id(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_slave_id(self) -> Coroutine[Any, Any, int]:
         """Get motor receive ID (Slave ID). Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         Range: [0, 0x7FF]
 
@@ -831,14 +831,14 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.ESC_ID)
         return decode_register_int(self.bus)
 
-    def set_slave_id(self, value: int) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def set_slave_id(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor receive ID (Slave ID). Returns coroutine to be awaited.
 
         Args:
             value: Slave ID [0, 0x7FF]
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_write_register_int(
@@ -846,11 +846,11 @@ class Motor:
         )
         return decode_register_int(self.bus)
 
-    def get_timeout(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_timeout(self) -> Coroutine[Any, Any, int]:
         """Get motor timeout alarm time. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         Range: [0, 2^32-1]
 
@@ -858,14 +858,14 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.TIMEOUT)
         return decode_register_int(self.bus)
 
-    def set_timeout(self, value: int) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def set_timeout(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor timeout alarm time. Returns coroutine to be awaited.
 
         Args:
             value: Timeout value [0, 2^32-1]
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_write_register_int(
@@ -873,11 +873,11 @@ class Motor:
         )
         return decode_register_int(self.bus)
 
-    def get_can_baudrate(self) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    def get_can_baudrate(self) -> Coroutine[Any, Any, int]:
         """Get CAN baud rate code. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         Range: [0, 4]
 
@@ -887,14 +887,14 @@ class Motor:
 
     def set_can_baudrate(
         self, value: int
-    ) -> Coroutine[Any, Any, RegisterResponse[int]]:
+    ) -> Coroutine[Any, Any, int]:
         """Set CAN baud rate code. Returns coroutine to be awaited.
 
         Args:
             value: CAN baud rate code [0, 4]
 
         Returns:
-            Coroutine that yields RegisterResponse[int] when awaited
+            Coroutine that yields int when awaited
 
         """
         encode_write_register_int(
@@ -903,11 +903,11 @@ class Motor:
         return decode_register_int(self.bus)
 
     # Read-Only Calibration and Position Methods
-    def get_phase_u_offset(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_phase_u_offset(self) -> Coroutine[Any, Any, float]:
         """Get U phase offset calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -915,11 +915,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.U_OFF)
         return decode_register_float(self.bus)
 
-    def get_phase_v_offset(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_phase_v_offset(self) -> Coroutine[Any, Any, float]:
         """Get V phase offset calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -927,11 +927,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.V_OFF)
         return decode_register_float(self.bus)
 
-    def get_compensation_factor_1(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_compensation_factor_1(self) -> Coroutine[Any, Any, float]:
         """Get compensation factor 1 calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -939,11 +939,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.K1)
         return decode_register_float(self.bus)
 
-    def get_compensation_factor_2(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_compensation_factor_2(self) -> Coroutine[Any, Any, float]:
         """Get compensation factor 2 calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -951,11 +951,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.K2)
         return decode_register_float(self.bus)
 
-    def get_angle_offset(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_angle_offset(self) -> Coroutine[Any, Any, float]:
         """Get angle offset calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -963,11 +963,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.M_OFF)
         return decode_register_float(self.bus)
 
-    def get_direction(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_direction(self) -> Coroutine[Any, Any, float]:
         """Get motor direction calibration value. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -975,11 +975,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.DIR)
         return decode_register_float(self.bus)
 
-    def get_motor_position(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_motor_position(self) -> Coroutine[Any, Any, float]:
         """Get motor position. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 
@@ -987,11 +987,11 @@ class Motor:
         encode_read_register(self.bus, self.motor_id, RegisterAddress.P_M)
         return decode_register_float(self.bus)
 
-    def get_output_shaft_position(self) -> Coroutine[Any, Any, RegisterResponse[float]]:
+    def get_output_shaft_position(self) -> Coroutine[Any, Any, float]:
         """Get output shaft position. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields RegisterResponse[float] when awaited
+            Coroutine that yields float when awaited
 
         Read-Only Parameter
 

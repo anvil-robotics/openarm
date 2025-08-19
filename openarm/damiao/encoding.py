@@ -183,14 +183,17 @@ class PosForceControlParams:
 
 
 
-async def decode_register_int(bus: Bus) -> RegisterResponse[int]:
+async def decode_register_int(
+    bus: Bus, *, extended: bool = False
+) -> int | RegisterResponse[int]:
     """Decode register response with integer value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
+        extended: If True, return full RegisterResponse; if False, return just the value
 
     Returns:
-        RegisterResponse[int]: Register response with integer value
+        int | RegisterResponse[int]: Register value or full response based on extended
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -207,6 +210,9 @@ async def decode_register_int(bus: Bus) -> RegisterResponse[int]:
         "<HBBI", message.data
     )
 
+    if not extended:
+        return register_value
+
     return RegisterResponse[int](
         motor_id=slave_id,
         register=register_id,
@@ -215,14 +221,17 @@ async def decode_register_int(bus: Bus) -> RegisterResponse[int]:
     )
 
 
-async def decode_register_float(bus: Bus) -> RegisterResponse[float]:
+async def decode_register_float(
+    bus: Bus, *, extended: bool = False
+) -> float | RegisterResponse[float]:
     """Decode register response with float value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
+        extended: If True, return full RegisterResponse; if False, return just the value
 
     Returns:
-        RegisterResponse[float]: Register response with float value
+        float | RegisterResponse[float]: Register value or full response
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -238,6 +247,9 @@ async def decode_register_float(bus: Bus) -> RegisterResponse[float]:
     slave_id, command_code, register_id, register_value = struct.unpack(
         "<HBBf", message.data
     )
+
+    if not extended:
+        return register_value
 
     return RegisterResponse[float](
         motor_id=slave_id,
