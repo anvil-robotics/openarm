@@ -117,10 +117,10 @@ class RegisterResponse(Generic[T]):
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
     """
 
-    motor_id: int       # Motor slave ID that responded
-    register: int       # Register address that was accessed
-    value: T            # Register value (int for uint32, float for float32)
-    command: int        # Command code (0x55 for write, 0x33 for read)
+    motor_id: int  # Motor slave ID that responded
+    register: int  # Register address that was accessed
+    value: T  # Register value (int for uint32, float for float32)
+    command: int  # Command code (0x55 for write, 0x33 for read)
 
 
 @dataclass
@@ -130,9 +130,9 @@ class AckResponse:
     Reference: DM_CAN.py save_motor_param and other simple operations
     """
 
-    motor_id: int       # Motor slave ID that responded
-    command: int        # Command code that was executed
-    success: bool       # Whether the operation was successful
+    motor_id: int  # Motor slave ID that responded
+    command: int  # Command code that was executed
+    success: bool  # Whether the operation was successful
 
 
 @dataclass
@@ -180,7 +180,6 @@ class PosForceControlParams:
     position: float  # Desired position in radians
     velocity: float  # Desired velocity in radians/second (scaled by 100)
     current_norm: float  # Normalized current 0-1 (scaled to 0-10000)
-
 
 
 async def decode_register_int(
@@ -304,10 +303,10 @@ def encode_control_mit(
     # Reference: DM_CAN.py controlMIT data_buf packing lines 114-121
     # Pack as: q(16-bit), dq(12-bit)|kp_high(4-bit), kp_low(8-bit)|kd_high(8-bit),
     # kd_low(4-bit)|tau(12-bit)
-    word1 = q_uint                                        # q: full 16 bits
-    word2 = (dq_uint << 4) | ((kp_uint >> 8) & 0xF)     # dq(12) + kp_high(4)
+    word1 = q_uint  # q: full 16 bits
+    word2 = (dq_uint << 4) | ((kp_uint >> 8) & 0xF)  # dq(12) + kp_high(4)
     word3 = (kp_uint & 0xFF) | ((kd_uint & 0xFF0) << 4)  # kp_low(8) + kd_high(8)
-    word4 = ((kd_uint & 0xF) << 12) | (tau_uint & 0xFFF) # kd_low(4) + tau(12)
+    word4 = ((kd_uint & 0xF) << 12) | (tau_uint & 0xFFF)  # kd_low(4) + tau(12)
 
     data = struct.pack("<HHHH", word1, word2, word3, word4)
 
@@ -346,8 +345,8 @@ async def decode_motor_state(
 
     # Extract packed motor state values using bit operations
     # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
-    q_uint = word1                              # position: full 16 bits
-    dq_uint = (word2 >> 4) & 0xFFF             # velocity: high 12 bits
+    q_uint = word1  # position: full 16 bits
+    dq_uint = (word2 >> 4) & 0xFFF  # velocity: high 12 bits
     tau_uint = ((word2 & 0xF) << 8) | (message.data[5] & 0xFF)  # torque: low 4 bits
 
     # Get motor limits for scaling back to engineering units
@@ -393,10 +392,13 @@ def encode_read_register(
     # Reference: Register read format in DM_CAN.py __read_RID_param function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,                 # motor_id as 16-bit value
-        _READ_REGISTER_CODE,      # 0x33 read register command
-        int(register_address),    # register address to read
-        0x00, 0x00, 0x00, 0x00   # padding bytes
+        motor_id,  # motor_id as 16-bit value
+        _READ_REGISTER_CODE,  # 0x33 read register command
+        int(register_address),  # register address to read
+        0x00,
+        0x00,
+        0x00,
+        0x00,  # padding bytes
     )
 
     # Send to master arbitration ID 0x7FF for register operations
@@ -426,10 +428,10 @@ def encode_write_register_int(
     # Reference: Integer register write format in DM_CAN.py __write_motor_param
     data = struct.pack(
         "<HBBI",
-        motor_id,                 # motor_id as 16-bit value
-        _WRITE_REGISTER_CODE,     # 0x55 write register command
-        int(register_address),    # register address to write
-        int(value)                # value as 32-bit unsigned integer
+        motor_id,  # motor_id as 16-bit value
+        _WRITE_REGISTER_CODE,  # 0x55 write register command
+        int(register_address),  # register address to write
+        int(value),  # value as 32-bit unsigned integer
     )
 
     # Send to master arbitration ID 0x7FF for register operations
@@ -459,10 +461,10 @@ def encode_write_register_float(
     # Reference: Float register write format in DM_CAN.py __write_motor_param
     data = struct.pack(
         "<HBBf",
-        motor_id,                 # motor_id as 16-bit value
-        _WRITE_REGISTER_CODE,     # 0x55 write register command
-        int(register_address),    # register address to write
-        float(value)              # value as 32-bit float
+        motor_id,  # motor_id as 16-bit value
+        _WRITE_REGISTER_CODE,  # 0x55 write register command
+        int(register_address),  # register address to write
+        float(value),  # value as 32-bit float
     )
 
     # Send to master arbitration ID 0x7FF for register operations
@@ -488,9 +490,13 @@ def encode_save_parameters(bus: Bus, motor_id: int) -> None:
     # Reference: Save command format in DM_CAN.py save_motor_param function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,                 # motor_id as 16-bit value
-        0xAA,                     # 0xAA save parameters command
-        0x00, 0x00, 0x00, 0x00, 0x00  # padding bytes
+        motor_id,  # motor_id as 16-bit value
+        0xAA,  # 0xAA save parameters command
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,  # padding bytes
     )
 
     # Send to master arbitration ID 0x7FF for register operations
@@ -516,9 +522,13 @@ def encode_refresh_status(bus: Bus, motor_id: int) -> None:
     # Reference: Refresh command format in DM_CAN.py refresh_motor_status function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,                 # motor_id as 16-bit value
-        0xCC,                     # 0xCC refresh status command
-        0x00, 0x00, 0x00, 0x00, 0x00  # padding bytes
+        motor_id,  # motor_id as 16-bit value
+        0xCC,  # 0xCC refresh status command
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,  # padding bytes
     )
 
     # Send to master arbitration ID 0x7FF for register operations
@@ -553,7 +563,7 @@ async def decode_acknowledgment(bus: Bus) -> AckResponse:
     return AckResponse(
         motor_id=motor_id,
         command=command_code,
-        success=(status == 0x00)  # Assume 0x00 means success
+        success=(status == 0x00),  # Assume 0x00 means success
     )
 
 
