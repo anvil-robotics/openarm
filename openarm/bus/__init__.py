@@ -1,6 +1,7 @@
 """CAN bus message multiplexer for filtering messages by arbitration ID."""
 
-from asyncio import Queue, QueueShutDown, QueueFull, get_running_loop
+from asyncio import Queue, QueueFull, get_running_loop
+from collections.abc import Coroutine
 
 import can
 
@@ -8,34 +9,39 @@ import can
 class Bus:
     """CAN bus wrapper."""
 
-    def __init__(self, bus: can.BusABC, *, read_buffer: int = 0) -> None:
+    def __init__(self, bus: can.BusABC) -> None:
         """Initialize the bus multiplexer.
 
         Args:
             bus: The underlying CAN bus interface.
-            read_buffer: 
 
         """
         self.bus = bus
-        self.lookup: dict[int, list[can.Message]] = {}
-        self.queue = Queue[can.Message](maxsize=read_buffer)
+        self.queues: dict[int, Queue[can.Message]] = {}
         loop = get_running_loop()
         loop.add_reader(bus.fileno(), self._onreadable)
 
     def _onreadable(self) -> None:
         try:
             msg = self.bus.recv()
-            # NOTE: msg is impossible to be None
-            self.queue.put_nowait(msg)
-        except QueueFull:
-            # nothing we can do here
-            pass
-        except QueueShutDown:
-            pass
+            if msg is None:
+                # This shouldn't happen when called by the event loop
+                err_msg = "Unexpected None from bus.recv() in _onreadable"
+                raise RuntimeError(err_msg)
+
+            if msg.arbitration_id in self.queues:
+                self.queues[msg.arbitration_id].put_nowait(msg)
+            else:
+                queue = Queue[can.Message]()
+                queue.put_nowait(msg)
+                self.queues[msg.arbitration_id] = queue
+
         except can.CanOperationError:
             loop = get_running_loop()
             loop.remove_reader(self.bus.fileno())
-            self.queue.shutdown()
+        except QueueFull:
+            # drop message
+            pass
 
     def send(self, msg: can.Message, timeout: float | None = None) -> None:
         """Send a CAN message.
@@ -47,10 +53,10 @@ class Bus:
         """
         self.bus.send(msg, timeout)
 
-    async def recv(self, arbitration_id: int) -> can.Message:
+    def recv(self, arbitration_id: int) -> Coroutine[any, any, can.Message]:
         """Receive a CAN message with the specified arbitration ID.
 
-        Messages with other arbitration IDs are queued for later retrieval.
+        Messages with other arbitration IDs are queued separately.
 
         Args:
             arbitration_id: The arbitration ID to filter for.
@@ -59,16 +65,9 @@ class Bus:
             The received CAN message.
 
         """
-        queue = self.lookup[arbitration_id]
-        if queue and len(queue) > 0:
-            return queue.pop(0)
+        if arbitration_id in self.queues:
+            return self.queues[arbitration_id].get()
 
-        while True:
-            msg = await self.queue.get()
-            if msg.arbitration_id == arbitration_id:
-                return msg
-            queue = self.lookup[msg.arbitration_id]
-            if queue:
-                queue.append(msg)
-            else:
-                self.lookup[msg.arbitration_id] = [msg]
+        queue = Queue[can.Message]()
+        self.queues[arbitration_id] = queue
+        return queue.get()
