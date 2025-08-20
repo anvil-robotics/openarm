@@ -137,7 +137,7 @@ class AckResponse:
     Reference: DM_CAN.py save_motor_param and other simple operations
     """
 
-    motor_id: int  # Motor slave ID that responded
+    slave_id: int  # Motor slave ID that responded
     command: int  # Command code that was executed
     success: bool  # Whether the operation was successful
 
@@ -185,7 +185,7 @@ class PosForceControlParams:
     """
 
     position: float  # Desired position in radians
-    velocity: float  # Desired velocity in radians/second 
+    velocity: float  # Desired velocity in radians/second
     current_norm: float  # Normalized current 0-1
 
 
@@ -207,7 +207,7 @@ async def decode_register_int(bus: Bus) -> int:
     message = bus.recv(0x7FF, timeout=0.1)
 
     # Unpack register response data in single operation
-    # Format: '<HBBI' = motor_id(H) + command_code(B) + register_id(B) + value(I)
+    # Format: '<HBBI' = slave_id(H) + command_code(B) + register_id(B) + value(I)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
     _, _, _, register_value = struct.unpack("<HBBI", message.data)
 
@@ -232,7 +232,7 @@ async def decode_register_float(bus: Bus) -> float:
     message = bus.recv(0x7FF, timeout=0.1)
 
     # Unpack register response data in single operation
-    # Format: '<HBBf' = motor_id(H) + command_code(B) + register_id(B) + value(f)
+    # Format: '<HBBf' = slave_id(H) + command_code(B) + register_id(B) + value(f)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
     _, _, _, register_value = struct.unpack("<HBBf", message.data)
 
@@ -240,17 +240,17 @@ async def decode_register_float(bus: Bus) -> float:
 
 
 def encode_control_mit(
-    bus: Bus, motor_id: int, motor_limits: MotorLimits, params: MitControlParams
+    bus: Bus, slave_id: int, motor_limits: MotorLimits, params: MitControlParams
 ) -> None:
     """Control motor in MIT mode. Sends CAN message with MIT control parameters.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         motor_limits: Motor physical limits dataclass for parameter scaling
         params: MIT control parameters dataclass
 
-    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py controlMIT function lines 90-123
 
@@ -285,18 +285,19 @@ def encode_control_mit(
 
     # Send directly to motor's slave ID for MIT control
     # Reference: DM_CAN.py __send_data call with DM_Motor.SlaveID in controlMIT
-    message = can.Message(arbitration_id=motor_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data)
     bus.send(message)
 
 
 async def decode_motor_state(
-    bus: Bus, motor_id: int, motor_limits: MotorLimits
+    bus: Bus, master_id: int, motor_limits: MotorLimits
 ) -> MotorState:
     """Decode motor state response. Waits for motor state feedback.
 
     Args:
         bus: CAN bus instance for message reception
-        motor_id: Motor slave ID to wait for response from
+        master_id: Motor master ID to wait for response from
+            (motor sends responses on MasterID)
         motor_limits: Motor physical limits dataclass for parameter scaling back
             to engineering units
 
@@ -306,10 +307,10 @@ async def decode_motor_state(
     Reference: DM_CAN.py __process_packet function lines 260-288
 
     """
-    # Wait for motor state response with motor's slave ID
+    # Wait for motor state response with motor's master ID
     # Timeout to prevent indefinite blocking
     # Reference: Motor state response handling in DM_CAN.py recv calls after controlMIT
-    message = bus.recv(motor_id, timeout=0.1)
+    message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
     # Format: '<BHHBB' = little-endian: state_code(B) + packed_data(2*H) + temps(2*B)
@@ -346,13 +347,13 @@ async def decode_motor_state(
 
 
 def encode_read_register(
-    bus: Bus, motor_id: int, register_address: RegisterAddress
+    bus: Bus, slave_id: int, register_address: RegisterAddress
 ) -> None:
     """Read motor register value. Sends CAN message to read register.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         register_address: Register address to read
 
     Decode with: decode_register_int(bus) or decode_register_float(bus)
@@ -361,11 +362,11 @@ def encode_read_register(
 
     """
     # Pack register read command as structured data
-    # Format: '<HBBBBBB' = little-endian: motor_id(H=uint16) + command_bytes(6*B)
+    # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + command_bytes(6*B)
     # Reference: Register read format in DM_CAN.py __read_RID_param function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,  # motor_id as 16-bit value
+        slave_id,  # slave_id as 16-bit value
         _READ_REGISTER_CODE,  # 0x33 read register command
         int(register_address),  # register address to read
         0x00,
@@ -381,13 +382,13 @@ def encode_read_register(
 
 
 def encode_write_register_int(
-    bus: Bus, motor_id: int, register_address: RegisterAddress, value: int
+    bus: Bus, slave_id: int, register_address: RegisterAddress, value: int
 ) -> None:
     """Write motor register value as integer. Sends CAN message to write register.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         register_address: Register address to write
         value: Integer value to write to register
 
@@ -397,11 +398,11 @@ def encode_write_register_int(
 
     """
     # Pack as uint32 (4 bytes)
-    # Format: '<HBBI' = motor_id(H) + commands(2*B) + value(I=uint32)
+    # Format: '<HBBI' = slave_id(H) + commands(2*B) + value(I=uint32)
     # Reference: Integer register write format in DM_CAN.py __write_motor_param
     data = struct.pack(
         "<HBBI",
-        motor_id,  # motor_id as 16-bit value
+        slave_id,  # slave_id as 16-bit value
         _WRITE_REGISTER_CODE,  # 0x55 write register command
         int(register_address),  # register address to write
         int(value),  # value as 32-bit unsigned integer
@@ -414,13 +415,13 @@ def encode_write_register_int(
 
 
 def encode_write_register_float(
-    bus: Bus, motor_id: int, register_address: RegisterAddress, value: float
+    bus: Bus, slave_id: int, register_address: RegisterAddress, value: float
 ) -> None:
     """Write motor register value as float. Sends CAN message to write register.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         register_address: Register address to write
         value: Float value to write to register
 
@@ -430,11 +431,11 @@ def encode_write_register_float(
 
     """
     # Pack as float (4 bytes)
-    # Format: '<HBBf' = motor_id(H) + commands(2*B) + value(f=float)
+    # Format: '<HBBf' = slave_id(H) + commands(2*B) + value(f=float)
     # Reference: Float register write format in DM_CAN.py __write_motor_param
     data = struct.pack(
         "<HBBf",
-        motor_id,  # motor_id as 16-bit value
+        slave_id,  # slave_id as 16-bit value
         _WRITE_REGISTER_CODE,  # 0x55 write register command
         int(register_address),  # register address to write
         float(value),  # value as 32-bit float
@@ -446,12 +447,12 @@ def encode_write_register_float(
     bus.send(message)
 
 
-def encode_save_parameters(bus: Bus, motor_id: int) -> None:
+def encode_save_parameters(bus: Bus, slave_id: int) -> None:
     """Save motor parameters to flash. Sends CAN message to save all parameters.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
 
     Decode with: decode_acknowledgment(bus)
 
@@ -459,11 +460,11 @@ def encode_save_parameters(bus: Bus, motor_id: int) -> None:
 
     """
     # Pack save parameters command as structured data
-    # Format: '<HBBBBBB' = little-endian: motor_id(H=uint16) + command_bytes(6*B)
+    # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + command_bytes(6*B)
     # Reference: Save command format in DM_CAN.py save_motor_param function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,  # motor_id as 16-bit value
+        slave_id,  # slave_id as 16-bit value
         0xAA,  # 0xAA save parameters command
         0x00,
         0x00,
@@ -478,24 +479,24 @@ def encode_save_parameters(bus: Bus, motor_id: int) -> None:
     bus.send(message)
 
 
-def encode_refresh_status(bus: Bus, motor_id: int) -> None:
+def encode_refresh_status(bus: Bus, slave_id: int) -> None:
     """Refresh motor status. Sends CAN message to get current motor state.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
 
-    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py refresh_motor_status function lines 446-455
 
     """
     # Pack refresh status command as structured data
-    # Format: '<HBBBBBB' = little-endian: motor_id(H=uint16) + command_bytes(6*B)
+    # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + command_bytes(6*B)
     # Reference: Refresh command format in DM_CAN.py refresh_motor_status function
     data = struct.pack(
         "<HBBBBBB",
-        motor_id,  # motor_id as 16-bit value
+        slave_id,  # slave_id as 16-bit value
         0xCC,  # 0xCC refresh status command
         0x00,
         0x00,
@@ -517,7 +518,7 @@ async def decode_acknowledgment(bus: Bus) -> AckResponse:
         bus: CAN bus instance for message reception
 
     Returns:
-        AckResponse: Simple acknowledgment dataclass with motor_id, command, and success
+        AckResponse: Simple acknowledgment dataclass with slave_id, command, and success
 
     Reference: DM_CAN.py simple operations like save_motor_param
 
@@ -528,29 +529,29 @@ async def decode_acknowledgment(bus: Bus) -> AckResponse:
     message = bus.recv(0x7FF, timeout=0.1)
 
     # Unpack acknowledgment response data according to basic protocol format
-    # Format: '<HBBBBBB' = little-endian: motor_id(H=uint16) + response_data(6*B)
+    # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + response_data(6*B)
     # Reference: Basic response format similar to register responses
     unpacked_ack = struct.unpack("<HBBBBBB", message.data)
-    motor_id, command_code, status = unpacked_ack[:3]
+    slave_id, command_code, status = unpacked_ack[:3]
 
     return AckResponse(
-        motor_id=motor_id,
+        slave_id=slave_id,
         command=command_code,
         success=(status == 0x00),  # Assume 0x00 means success
     )
 
 
 def encode_control_pos_vel(
-    bus: Bus, motor_id: int, params: PosVelControlParams
+    bus: Bus, slave_id: int, params: PosVelControlParams
 ) -> None:
     """Control motor in position and velocity mode. Sends CAN message with params.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         params: Position and velocity control parameters dataclass
 
-    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py control_Pos_Vel function lines 130-148
 
@@ -562,19 +563,19 @@ def encode_control_pos_vel(
 
     # Send to motor ID + 0x100 offset for position/velocity control mode
     # Reference: DM_CAN.py control_Pos_Vel motorid calculation line 140
-    message = can.Message(arbitration_id=0x100 + motor_id, data=data)
+    message = can.Message(arbitration_id=0x100 + slave_id, data=data)
     bus.send(message)
 
 
-def encode_control_vel(bus: Bus, motor_id: int, params: VelControlParams) -> None:
+def encode_control_vel(bus: Bus, slave_id: int, params: VelControlParams) -> None:
     """Control motor in velocity mode. Sends CAN message with velocity parameters.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         params: Velocity control parameters dataclass
 
-    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py control_Vel function lines 150-163
 
@@ -586,21 +587,21 @@ def encode_control_vel(bus: Bus, motor_id: int, params: VelControlParams) -> Non
 
     # Send to motor ID + 0x200 offset for velocity control mode
     # Reference: DM_CAN.py control_Vel motorid calculation line 158
-    message = can.Message(arbitration_id=0x200 + motor_id, data=data)
+    message = can.Message(arbitration_id=0x200 + slave_id, data=data)
     bus.send(message)
 
 
 def encode_control_torque_pos(
-    bus: Bus, motor_id: int, params: PosForceControlParams
+    bus: Bus, slave_id: int, params: PosForceControlParams
 ) -> None:
     """Control motor in position+force mode (EMIT). Sends CAN message with params.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         params: Position and force control parameters dataclass
 
-    Decode with: decode_motor_state(bus, motor_id, motor_limits)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py control_pos_force function lines 165-186
 
@@ -622,16 +623,16 @@ def encode_control_torque_pos(
 
     # Send to motor ID + 0x300 offset for position/force control mode
     # Reference: DM_CAN.py control_pos_force motorid calculation line 175
-    message = can.Message(arbitration_id=0x300 + motor_id, data=data)
+    message = can.Message(arbitration_id=0x300 + slave_id, data=data)
     bus.send(message)
 
 
-def encode_enable_motor(bus: Bus, motor_id: int) -> None:
+def encode_enable_motor(bus: Bus, slave_id: int) -> None:
     """Enable motor. Sends CAN message to enable motor operation.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
 
     Decode with: decode_acknowledgment(bus)
 
@@ -645,16 +646,16 @@ def encode_enable_motor(bus: Bus, motor_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in enable function line 193
-    message = can.Message(arbitration_id=motor_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data)
     bus.send(message)
 
 
-def encode_disable_motor(bus: Bus, motor_id: int) -> None:
+def encode_disable_motor(bus: Bus, slave_id: int) -> None:
     """Disable motor. Sends CAN message to disable motor operation.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
 
     Decode with: decode_acknowledgment(bus)
 
@@ -668,16 +669,16 @@ def encode_disable_motor(bus: Bus, motor_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in disable function line 213
-    message = can.Message(arbitration_id=motor_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data)
     bus.send(message)
 
 
-def encode_set_zero_position(bus: Bus, motor_id: int) -> None:
+def encode_set_zero_position(bus: Bus, slave_id: int) -> None:
     """Set motor zero position. Sends CAN message to set current position as zero ref.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
 
     Decode with: decode_acknowledgment(bus)
 
@@ -691,18 +692,18 @@ def encode_set_zero_position(bus: Bus, motor_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in set_zero_position function line 221
-    message = can.Message(arbitration_id=motor_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data)
     bus.send(message)
 
 
 def encode_enable_motor_legacy(
-    bus: Bus, motor_id: int, control_mode: ControlMode
+    bus: Bus, slave_id: int, control_mode: ControlMode
 ) -> None:
     """Enable motor with legacy firmware. Sends CAN message for old firmware compat.
 
     Args:
         bus: CAN bus instance for message transmission
-        motor_id: Motor slave ID
+        slave_id: Motor slave ID
         control_mode: Control mode for legacy enable calculation
 
     Decode with: decode_acknowledgment(bus)
@@ -717,7 +718,7 @@ def encode_enable_motor_legacy(
 
     # Calculate legacy enable ID with control mode offset for old firmware
     # Reference: DM_CAN.py enable_old ID calculation line 204
-    enable_id = ((int(control_mode) - 1) << 2) + motor_id
+    enable_id = ((int(control_mode) - 1) << 2) + slave_id
 
     # Send to calculated enable ID for legacy firmware compatibility
     # Reference: DM_CAN.py enable_old __send_data call line 205

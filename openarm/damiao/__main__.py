@@ -13,10 +13,17 @@ Commands:
     save             Save motor parameters to flash
 
 Examples:
-    python -m openarm.damiao enable --iface can0 --motor-type DM4310 1
-    python -m openarm.damiao control mit --iface can0 --motor-type DM4310 1 50 0.3 0 0 0
-    python -m openarm.damiao param get --iface can0 --motor-type DM4310 1 over_voltage
-    python -m openarm.damiao param set --iface can0 --motor-type DM4310 1 max_speed 10.0
+    # When slave_id and master_id are the same:
+    python -m openarm.damiao enable --iface can0 --motor-type DM4310 1 1
+    python -m openarm.damiao control mit --iface can0 --motor-type DM4310 1 1 \
+        50 0.3 0 0 0
+    python -m openarm.damiao param get --iface can0 --motor-type DM4310 1 1 \
+        over_voltage
+    python -m openarm.damiao param set --iface can0 --motor-type DM4310 1 1 \
+        max_speed 10.0
+
+    # When slave_id and master_id are different:
+    python -m openarm.damiao enable --iface can0 --motor-type DM4310 1 2
 
 """
 
@@ -51,10 +58,10 @@ def _error(message: str) -> None:
     print(message, file=sys.stderr)  # noqa: T201
 
 
-def _format_motor_state(state: MotorState, motor_id: int) -> str:
+def _format_motor_state(state: MotorState, slave_id: int) -> str:
     """Format motor state for display."""
     lines = [
-        f"Motor {motor_id} state:",
+        f"Motor {slave_id} state:",
         f"  Position: {state.position:.6f} rad",
         f"  Velocity: {state.velocity:.6f} rad/s",
         f"  Torque: {state.torque:.6f} Nm",
@@ -76,7 +83,9 @@ async def _enable(args: argparse.Namespace) -> None:
     """Enable motor using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     if args.legacy:
         control_mode = ControlMode(args.control_mode)
@@ -95,7 +104,9 @@ async def _disable(args: argparse.Namespace) -> None:
     """Disable motor using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     response = await motor.disable()
 
@@ -110,7 +121,9 @@ async def _set_zero(args: argparse.Namespace) -> None:
     """Set motor zero position using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     response = await motor.set_zero_position()
 
@@ -125,7 +138,9 @@ async def _refresh(args: argparse.Namespace) -> None:
     """Refresh motor status using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     state = await motor.refresh_status()
     _output(_format_motor_state(state, args.slave_id))
@@ -135,7 +150,9 @@ async def _control_mit(args: argparse.Namespace) -> None:
     """Control motor in MIT mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     params = MitControlParams(
         kp=args.kp,
@@ -159,7 +176,9 @@ async def _control_pos_vel(args: argparse.Namespace) -> None:
     """Control motor in position/velocity mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     params = PosVelControlParams(position=args.pos, velocity=args.vel)
     state = await motor.control_pos_vel(params)
@@ -176,7 +195,9 @@ async def _control_vel(args: argparse.Namespace) -> None:
     """Control motor in velocity mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     params = VelControlParams(velocity=args.vel)
     state = await motor.control_vel(params)
@@ -193,7 +214,9 @@ async def _control_pos_force(args: argparse.Namespace) -> None:
     """Control motor in position/force mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     params = PosForceControlParams(
         position=args.pos, velocity=args.vel, current_norm=args.i_norm
@@ -213,7 +236,9 @@ async def _save_parameters(args: argparse.Namespace) -> None:
     """Save motor parameters to flash using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     response = await motor.save_parameters()
 
@@ -229,7 +254,9 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
     """Get semantic motor parameter using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     param_name = args.parameter
 
@@ -274,7 +301,9 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
     """Set semantic motor parameter using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor = Motor(bus, args.slave_id, motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
     param_name = args.parameter
     value = args.value
@@ -334,7 +363,12 @@ def _main() -> None:
     # Common arguments
     def add_common_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--iface", default="can0", help="CAN interface to use")
-        parser.add_argument("slave_id", type=int, help="Motor slave ID")
+        parser.add_argument(
+            "slave_id", type=int, help="Motor slave ID (for sending commands)"
+        )
+        parser.add_argument(
+            "master_id", type=int, help="Motor master ID (for receiving responses)"
+        )
 
     def add_motor_type_arg(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
