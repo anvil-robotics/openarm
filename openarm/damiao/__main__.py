@@ -1,4 +1,3 @@
-# ruff: noqa: T201 E501 ANN401
 """Command-line interface for controlling Damiao motors over CAN.
 
 This module provides a CLI to control Damiao motors via CAN bus communication.
@@ -25,15 +24,16 @@ Examples:
 import argparse
 import asyncio
 import sys
+from collections.abc import Coroutine
 from typing import Any
 
 from openarm.bus import Bus
 
 from . import (
-    MOTOR_LIMITS,
     ControlMode,
     MitControlParams,
     Motor,
+    MotorState,
     MotorType,
     PosForceControlParams,
     PosVelControlParams,
@@ -41,24 +41,36 @@ from . import (
     VelControlParams,
 )
 from .encoding import (
-    decode_acknowledgment,
-    decode_motor_state,
     decode_register_float,
     decode_register_int,
-    encode_control_mit,
-    encode_control_pos_vel,
-    encode_control_torque_pos,
-    encode_control_vel,
-    encode_disable_motor,
-    encode_enable_motor,
-    encode_enable_motor_legacy,
     encode_read_register,
-    encode_refresh_status,
-    encode_save_parameters,
-    encode_set_zero_position,
     encode_write_register_float,
     encode_write_register_int,
 )
+
+
+# Output utilities for CLI
+def _output(message: str) -> None:
+    """Output message to stdout."""
+    print(message)  # noqa: T201
+
+
+def _error(message: str) -> None:
+    """Output error message to stderr."""
+    print(message, file=sys.stderr)  # noqa: T201
+
+
+def _format_motor_state(state: MotorState, motor_id: int) -> str:
+    """Format motor state for display."""
+    lines = [
+        f"Motor {motor_id} state:",
+        f"  Position: {state.position:.6f} rad",
+        f"  Velocity: {state.velocity:.6f} rad/s",
+        f"  Torque: {state.torque:.6f} Nm",
+        f"  MOS Temp: {state.temp_mos}°C",
+        f"  Rotor Temp: {state.temp_rotor}°C",
+    ]
+    return "\n".join(lines)
 
 
 def _create_bus(iface: str) -> Bus:
@@ -70,73 +82,69 @@ def _create_bus(iface: str) -> Bus:
 
 
 async def _enable(args: argparse.Namespace) -> None:
-    """Enable motor using encode/decode pattern."""
+    """Enable motor using Motor class."""
     bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(bus, args.slave_id, motor_type)
 
     if args.legacy:
         control_mode = ControlMode(args.control_mode)
-        encode_enable_motor_legacy(bus, args.slave_id, control_mode)
+        response = await motor.enable_legacy(control_mode)
     else:
-        encode_enable_motor(bus, args.slave_id)
+        response = await motor.enable()
 
-    response = await decode_acknowledgment(bus)
     if response.success:
-        print(f"Motor {args.slave_id} enabled successfully")
+        _output(f"Motor {args.slave_id} enabled successfully")
     else:
-        print(f"Failed to enable motor {args.slave_id}")
+        _error(f"Failed to enable motor {args.slave_id}")
         sys.exit(1)
 
 
 async def _disable(args: argparse.Namespace) -> None:
-    """Disable motor using encode/decode pattern."""
+    """Disable motor using Motor class."""
     bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(bus, args.slave_id, motor_type)
 
-    encode_disable_motor(bus, args.slave_id)
-    response = await decode_acknowledgment(bus)
+    response = await motor.disable()
 
     if response.success:
-        print(f"Motor {args.slave_id} disabled successfully")
+        _output(f"Motor {args.slave_id} disabled successfully")
     else:
-        print(f"Failed to disable motor {args.slave_id}")
+        _error(f"Failed to disable motor {args.slave_id}")
         sys.exit(1)
 
 
 async def _set_zero(args: argparse.Namespace) -> None:
-    """Set motor zero position using encode/decode pattern."""
+    """Set motor zero position using Motor class."""
     bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(bus, args.slave_id, motor_type)
 
-    encode_set_zero_position(bus, args.slave_id)
-    response = await decode_acknowledgment(bus)
+    response = await motor.set_zero_position()
 
     if response.success:
-        print(f"Zero position set for motor {args.slave_id}")
+        _output(f"Zero position set for motor {args.slave_id}")
     else:
-        print(f"Failed to set zero position for motor {args.slave_id}")
+        _error(f"Failed to set zero position for motor {args.slave_id}")
         sys.exit(1)
 
 
 async def _refresh(args: argparse.Namespace) -> None:
-    """Refresh motor status using encode/decode pattern."""
+    """Refresh motor status using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor_limits = MOTOR_LIMITS[motor_type]
+    motor = Motor(bus, args.slave_id, motor_type)
 
-    encode_refresh_status(bus, args.slave_id)
-    state = await decode_motor_state(bus, args.slave_id, motor_limits)
-
-    print(f"Motor {args.slave_id} status:")
-    print(f"  Position: {state.position:.6f} rad")
-    print(f"  Velocity: {state.velocity:.6f} rad/s")
-    print(f"  Torque: {state.torque:.6f} Nm")
-    print(f"  MOS Temp: {state.temp_mos}°C")
-    print(f"  Rotor Temp: {state.temp_rotor}°C")
+    state = await motor.refresh_status()
+    _output(_format_motor_state(state, args.slave_id))
 
 
 async def _control_mit(args: argparse.Namespace) -> None:
-    """Control motor in MIT mode using encode/decode pattern."""
+    """Control motor in MIT mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor_limits = MOTOR_LIMITS[motor_type]
+    motor = Motor(bus, args.slave_id, motor_type)
 
     params = MitControlParams(
         kp=args.kp,
@@ -146,65 +154,67 @@ async def _control_mit(args: argparse.Namespace) -> None:
         tau=args.tau,
     )
 
-    encode_control_mit(bus, args.slave_id, motor_limits, params)
-    state = await decode_motor_state(bus, args.slave_id, motor_limits)
+    state = await motor.control_mit(params)
 
-    print(f"MIT control sent to motor {args.slave_id}")
-    print(
-        f"Response - Position: {state.position:.6f}, Velocity: {state.velocity:.6f}, Torque: {state.torque:.6f}"
+    _output(f"MIT control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
     )
 
 
 async def _control_pos_vel(args: argparse.Namespace) -> None:
-    """Control motor in position/velocity mode using encode/decode pattern."""
+    """Control motor in position/velocity mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor_limits = MOTOR_LIMITS[motor_type]
+    motor = Motor(bus, args.slave_id, motor_type)
 
     params = PosVelControlParams(position=args.pos, velocity=args.vel)
+    state = await motor.control_pos_vel(params)
 
-    encode_control_pos_vel(bus, args.slave_id, params)
-    state = await decode_motor_state(bus, args.slave_id, motor_limits)
-
-    print(f"Position/velocity control sent to motor {args.slave_id}")
-    print(
-        f"Response - Position: {state.position:.6f}, Velocity: {state.velocity:.6f}, Torque: {state.torque:.6f}"
+    _output(f"Position/velocity control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
     )
 
 
 async def _control_vel(args: argparse.Namespace) -> None:
-    """Control motor in velocity mode using encode/decode pattern."""
+    """Control motor in velocity mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor_limits = MOTOR_LIMITS[motor_type]
+    motor = Motor(bus, args.slave_id, motor_type)
 
     params = VelControlParams(velocity=args.vel)
+    state = await motor.control_vel(params)
 
-    encode_control_vel(bus, args.slave_id, params)
-    state = await decode_motor_state(bus, args.slave_id, motor_limits)
-
-    print(f"Velocity control sent to motor {args.slave_id}")
-    print(
-        f"Response - Position: {state.position:.6f}, Velocity: {state.velocity:.6f}, Torque: {state.torque:.6f}"
+    _output(f"Velocity control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
     )
 
 
 async def _control_pos_force(args: argparse.Namespace) -> None:
-    """Control motor in position/force mode using encode/decode pattern."""
+    """Control motor in position/force mode using Motor class."""
     bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
-    motor_limits = MOTOR_LIMITS[motor_type]
+    motor = Motor(bus, args.slave_id, motor_type)
 
     params = PosForceControlParams(
         position=args.pos, velocity=args.vel, current_norm=args.i_norm
     )
 
-    encode_control_torque_pos(bus, args.slave_id, params)
-    state = await decode_motor_state(bus, args.slave_id, motor_limits)
+    state = await motor.control_pos_force(params)
 
-    print(f"Position/force control sent to motor {args.slave_id}")
-    print(
-        f"Response - Position: {state.position:.6f}, Velocity: {state.velocity:.6f}, Torque: {state.torque:.6f}"
+    _output(f"Position/force control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
     )
 
 
@@ -217,7 +227,7 @@ async def _register_read(args: argparse.Namespace) -> None:
         try:
             address = RegisterAddress[args.address.upper()]
         except KeyError:
-            print(f"Unknown register name: {args.address}")
+            _error(f"Unknown register name: {args.address}")
             sys.exit(1)
     else:
         address = RegisterAddress(args.address)
@@ -226,10 +236,10 @@ async def _register_read(args: argparse.Namespace) -> None:
 
     if args.as_float:
         value = await decode_register_float(bus)
-        print(f"{value}")
+        _output(f"{value}")
     else:
         value = await decode_register_int(bus)
-        print(f"{value}")
+        _output(f"{value}")
 
 
 async def _register_write(args: argparse.Namespace) -> None:
@@ -241,7 +251,7 @@ async def _register_write(args: argparse.Namespace) -> None:
         try:
             address = RegisterAddress[args.address.upper()]
         except KeyError:
-            print(f"Unknown register name: {args.address}")
+            _error(f"Unknown register name: {args.address}")
             sys.exit(1)
     else:
         address = RegisterAddress(args.address)
@@ -249,24 +259,25 @@ async def _register_write(args: argparse.Namespace) -> None:
     if args.as_float:
         encode_write_register_float(bus, args.slave_id, address, args.value)
         value = await decode_register_float(bus)
-        print(f"Written: {value}")
+        _output(f"Written: {value}")
     else:
         encode_write_register_int(bus, args.slave_id, address, int(args.value))
         value = await decode_register_int(bus)
-        print(f"Written: {value}")
+        _output(f"Written: {value}")
 
 
 async def _save_parameters(args: argparse.Namespace) -> None:
-    """Save motor parameters to flash using encode/decode pattern."""
+    """Save motor parameters to flash using Motor class."""
     bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(bus, args.slave_id, motor_type)
 
-    encode_save_parameters(bus, args.slave_id)
-    response = await decode_acknowledgment(bus)
+    response = await motor.save_parameters()
 
     if response.success:
-        print(f"Parameters saved for motor {args.slave_id}")
+        _output(f"Parameters saved for motor {args.slave_id}")
     else:
-        print(f"Failed to save parameters for motor {args.slave_id}")
+        _error(f"Failed to save parameters for motor {args.slave_id}")
         sys.exit(1)
 
 
@@ -308,12 +319,12 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
     }
 
     if param_name not in param_methods:
-        print(f"Unknown parameter: {param_name}")
-        print(f"Available parameters: {', '.join(param_methods.keys())}")
+        _error(f"Unknown parameter: {param_name}")
+        _error(f"Available parameters: {', '.join(param_methods.keys())}")
         sys.exit(1)
 
     value = await param_methods[param_name]()
-    print(f"{param_name}: {value}")
+    _output(f"{param_name}: {value}")
 
 
 async def _motor_set_param(args: argparse.Namespace) -> None:
@@ -350,8 +361,8 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
     }
 
     if param_name not in param_methods:
-        print(f"Unknown parameter: {param_name}")
-        print(f"Available parameters: {', '.join(param_methods.keys())}")
+        _error(f"Unknown parameter: {param_name}")
+        _error(f"Available parameters: {', '.join(param_methods.keys())}")
         sys.exit(1)
 
     # Handle int vs float parameters
@@ -361,10 +372,10 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
         value = float(value)
 
     result = await param_methods[param_name](value)
-    print(f"{param_name} set to: {result}")
+    _output(f"{param_name} set to: {result}")
 
 
-def _run_async(coro: Any) -> None:
+def _run_async(coro: Coroutine[Any, Any, None]) -> None:
     """Run async coroutine in CLI context."""
     asyncio.run(coro)
 
@@ -408,11 +419,13 @@ def _main() -> None:
     # Disable command
     disable_parser = subparsers.add_parser("disable", help="Disable motor")
     add_common_args(disable_parser)
+    add_motor_type_arg(disable_parser)
     disable_parser.set_defaults(func=_disable)
 
     # Set zero command
     set_zero_parser = subparsers.add_parser("set-zero", help="Set motor zero position")
     add_common_args(set_zero_parser)
+    add_motor_type_arg(set_zero_parser)
     set_zero_parser.set_defaults(func=_set_zero)
 
     # Refresh command
@@ -527,6 +540,7 @@ def _main() -> None:
     # Save command
     save_parser = subparsers.add_parser("save", help="Save motor parameters to flash")
     add_common_args(save_parser)
+    add_motor_type_arg(save_parser)
     save_parser.set_defaults(func=_save_parameters)
 
     args = parser.parse_args()
