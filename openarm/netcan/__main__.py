@@ -2,9 +2,9 @@
 """NetCAN main entry point."""
 
 import argparse
-import asyncio
 import logging
 import socket
+from select import select
 
 from can import Bus
 
@@ -57,15 +57,20 @@ def main() -> None:
     logger.info("NetCAN server listening on port %d", args.port)
     logger.info("CAN bus: %s on channel %s", args.bus, args.channel)
 
+    reads = [sock.fileno(), bus.fileno()]
+
     try:
         while True:
-            client_sock, addr = sock.accept()
-            logger.info("Client connected from %s", addr)
-            transport = SocketTransport(client_sock)
-            server.attach(transport)
-
-            # Start server loop
-            asyncio.run(server.loop())
+            fds, _, _ = select(reads, [], [], None)
+            for fd in fds:
+                if fd == sock.fileno():
+                    client_sock, addr = sock.accept()
+                    logger.info("Client connected from %s", addr)
+                    transport = SocketTransport(client_sock)
+                    server.attach(transport)
+                    reads.append(client_sock.fileno())
+                elif not server.run(fd):
+                    reads.remove(fd)
 
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
