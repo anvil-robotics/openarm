@@ -9,7 +9,7 @@ Reference: README.md High-Level Motor Class section for architecture details.
 
 from collections.abc import Coroutine
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from openarm.bus import Bus
 
@@ -64,6 +64,16 @@ class MotorType(str, Enum):
     DMH6215 = "DMH6215"
     DMG6220 = "DMG6220"
 
+
+# CAN Baudrate mappings
+_BAUDRATE_TO_CODE = {
+    100000: 0,   # 100 kbps
+    250000: 1,   # 250 kbps
+    500000: 2,   # 500 kbps
+    750000: 3,   # 750 kbps
+    1000000: 4,  # 1 Mbps
+}
+_CODE_TO_BAUDRATE = {v: k for k, v in _BAUDRATE_TO_CODE.items()}
 
 # Motor limit configurations for all Damiao motor types
 # Reference: DM_CAN.py Limit_Param array structure lines 65-69
@@ -825,32 +835,38 @@ class Motor:
         )
         return decode_register_int(self.bus)
 
-    def get_can_baudrate(self) -> Coroutine[Any, Any, int]:
-        """Get CAN baud rate code. Returns coroutine to be awaited.
+    async def get_can_baudrate(self) -> int:
+        """Get CAN baud rate. Returns actual baudrate in bps.
 
         Returns:
-            Coroutine that yields int when awaited
-
-        Range: [0, 4]
+            Actual baudrate value in bps (100000, 250000, 500000, 750000, or 1000000)
 
         """
         encode_read_register(self.bus, self.motor_id, RegisterAddress.CAN_BR)
-        return decode_register_int(self.bus)
+        code = await decode_register_int(self.bus)
+        return _CODE_TO_BAUDRATE.get(code, code)  # Return code if unknown
 
-    def set_can_baudrate(self, value: int) -> Coroutine[Any, Any, int]:
-        """Set CAN baud rate code. Returns coroutine to be awaited.
+    async def set_can_baudrate(self, value: Literal[100000, 250000, 500000, 750000, 1000000]) -> int:
+        """Set CAN baud rate. Returns actual baudrate that was set.
 
         Args:
-            value: CAN baud rate code [0, 4]
+            value: CAN baud rate in bps. Valid values:
+                   - 100000 (100 kbps)
+                   - 250000 (250 kbps) 
+                   - 500000 (500 kbps)
+                   - 750000 (750 kbps)
+                   - 1000000 (1 Mbps)
 
         Returns:
-            Coroutine that yields int when awaited
+            Actual baudrate value that was set in bps
 
         """
+        code = _BAUDRATE_TO_CODE[value]
         encode_write_register_int(
-            self.bus, self.motor_id, RegisterAddress.CAN_BR, value
+            self.bus, self.motor_id, RegisterAddress.CAN_BR, code
         )
-        return decode_register_int(self.bus)
+        result_code = await decode_register_int(self.bus)
+        return _CODE_TO_BAUDRATE.get(result_code, result_code)
 
     # Read-Only Calibration and Position Methods
     def get_phase_u_offset(self) -> Coroutine[Any, Any, float]:
