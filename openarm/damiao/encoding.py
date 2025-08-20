@@ -97,7 +97,7 @@ def _float_to_uint(value: float, min_val: float, max_val: float, bits: int) -> i
     """
     # Clamp value to valid range
     value = max(min_val, min(value, max_val))
-    
+
     # Scale to unsigned integer range
     scale = (1 << bits) - 1
     normalized = (value - min_val) / (max_val - min_val)
@@ -128,8 +128,6 @@ class MitControlParams:
     q: float  # Desired position in radians
     dq: float  # Desired velocity in radians/second
     tau: float  # Desired torque in Nm
-
-
 
 
 @dataclass
@@ -211,9 +209,7 @@ async def decode_register_int(bus: Bus) -> int:
     # Unpack register response data in single operation
     # Format: '<HBBI' = motor_id(H) + command_code(B) + register_id(B) + value(I)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
-    _, _, _, register_value = struct.unpack(
-        "<HBBI", message.data
-    )
+    _, _, _, register_value = struct.unpack("<HBBI", message.data)
 
     return register_value
 
@@ -238,9 +234,7 @@ async def decode_register_float(bus: Bus) -> float:
     # Unpack register response data in single operation
     # Format: '<HBBf' = motor_id(H) + command_code(B) + register_id(B) + value(f)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
-    _, _, _, register_value = struct.unpack(
-        "<HBBf", message.data
-    )
+    _, _, _, register_value = struct.unpack("<HBBf", message.data)
 
     return register_value
 

@@ -28,8 +28,8 @@ from .encoding import (
     decode_register_float,
     decode_register_int,
     encode_control_mit,
-    encode_control_torque_pos,
     encode_control_pos_vel,
+    encode_control_torque_pos,
     encode_control_vel,
     encode_disable_motor,
     encode_enable_motor,
@@ -67,10 +67,10 @@ class MotorType(str, Enum):
 
 # CAN Baudrate mappings
 _BAUDRATE_TO_CODE = {
-    100000: 0,   # 100 kbps
-    250000: 1,   # 250 kbps
-    500000: 2,   # 500 kbps
-    750000: 3,   # 750 kbps
+    100000: 0,  # 100 kbps
+    250000: 1,  # 250 kbps
+    500000: 2,  # 500 kbps
+    750000: 3,  # 750 kbps
     1000000: 4,  # 1 Mbps
 }
 _CODE_TO_BAUDRATE = {v: k for k, v in _BAUDRATE_TO_CODE.items()}
@@ -846,13 +846,15 @@ class Motor:
         code = await decode_register_int(self.bus)
         return _CODE_TO_BAUDRATE.get(code, code)  # Return code if unknown
 
-    async def set_can_baudrate(self, value: Literal[100000, 250000, 500000, 750000, 1000000]) -> int:
+    async def set_can_baudrate(
+        self, value: Literal[100000, 250000, 500000, 750000, 1000000]
+    ) -> int:
         """Set CAN baud rate. Returns actual baudrate that was set.
 
         Args:
             value: CAN baud rate in bps. Valid values:
                    - 100000 (100 kbps)
-                   - 250000 (250 kbps) 
+                   - 250000 (250 kbps)
                    - 500000 (500 kbps)
                    - 750000 (750 kbps)
                    - 1000000 (1 Mbps)
@@ -862,9 +864,7 @@ class Motor:
 
         """
         code = _BAUDRATE_TO_CODE[value]
-        encode_write_register_int(
-            self.bus, self.motor_id, RegisterAddress.CAN_BR, code
-        )
+        encode_write_register_int(self.bus, self.motor_id, RegisterAddress.CAN_BR, code)
         result_code = await decode_register_int(self.bus)
         return _CODE_TO_BAUDRATE.get(result_code, result_code)
 
