@@ -80,6 +80,30 @@ _READ_REGISTER_CODE = 0x33
 _STATE_CODE = 0x11
 
 
+def _float_to_uint(value: float, min_val: float, max_val: float, bits: int) -> int:
+    """Convert float value to unsigned integer with clamping and scaling.
+
+    Args:
+        value: Float value to convert
+        min_val: Minimum value in float range
+        max_val: Maximum value in float range
+        bits: Number of bits for the unsigned integer
+
+    Returns:
+        Scaled unsigned integer value
+
+    Reference: DM_CAN.py float_to_uint function lines 494-498
+
+    """
+    # Clamp value to valid range
+    value = max(min_val, min(value, max_val))
+    
+    # Scale to unsigned integer range
+    scale = (1 << bits) - 1
+    normalized = (value - min_val) / (max_val - min_val)
+    return int(normalized * scale)
+
+
 @dataclass
 class MotorLimits:
     """Motor physical limits for parameter scaling.
@@ -187,7 +211,7 @@ async def decode_register_int(bus: Bus) -> int:
     # Unpack register response data in single operation
     # Format: '<HBBI' = motor_id(H) + command_code(B) + register_id(B) + value(I)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
-    slave_id, command_code, register_id, register_value = struct.unpack(
+    _, _, _, register_value = struct.unpack(
         "<HBBI", message.data
     )
 
@@ -214,7 +238,7 @@ async def decode_register_float(bus: Bus) -> float:
     # Unpack register response data in single operation
     # Format: '<HBBf' = motor_id(H) + command_code(B) + register_id(B) + value(f)
     # Reference: Register response format in DM_CAN.py __process_set_param_packet
-    slave_id, command_code, register_id, register_value = struct.unpack(
+    _, _, _, register_value = struct.unpack(
         "<HBBf", message.data
     )
 
@@ -245,21 +269,13 @@ def encode_control_mit(
         motor_limits.tau_max,
     )
 
-    # Clamp parameters to valid ranges
-    # Reference: DM_CAN.py LIMIT_MIN_MAX function calls in float_to_uint
-    kp = max(0, min(params.kp, 500))
-    kd = max(0, min(params.kd, 5))
-    q = max(-q_max, min(params.q, q_max))
-    dq = max(-dq_max, min(params.dq, dq_max))
-    tau = max(-tau_max, min(params.tau, tau_max))
-
     # Convert float parameters to unsigned integers using scaling
     # Reference: DM_CAN.py float_to_uint function calls in controlMIT lines 104-112
-    kp_uint = int((kp - 0) / (500 - 0) * ((1 << 12) - 1))
-    kd_uint = int((kd - 0) / (5 - 0) * ((1 << 12) - 1))
-    q_uint = int((q - (-q_max)) / (q_max - (-q_max)) * ((1 << 16) - 1))
-    dq_uint = int((dq - (-dq_max)) / (dq_max - (-dq_max)) * ((1 << 12) - 1))
-    tau_uint = int((tau - (-tau_max)) / (tau_max - (-tau_max)) * ((1 << 12) - 1))
+    kp_uint = _float_to_uint(params.kp, 0, 500, 12)
+    kd_uint = _float_to_uint(params.kd, 0, 5, 12)
+    q_uint = _float_to_uint(params.q, -q_max, q_max, 16)
+    dq_uint = _float_to_uint(params.dq, -dq_max, dq_max, 12)
+    tau_uint = _float_to_uint(params.tau, -tau_max, tau_max, 12)
 
     # Pack data according to MIT control protocol bit layout
     # Format: '<HHHH' = little-endian 4 unsigned 16-bit values with bit manipulation
