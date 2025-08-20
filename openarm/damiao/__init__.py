@@ -22,7 +22,6 @@ from .encoding import (
     PosForceControlParams,
     PosVelControlParams,
     RegisterAddress,
-    RegisterResponse,
     VelControlParams,
     decode_acknowledgment,
     decode_motor_state,
@@ -993,6 +992,5 @@ __all__ = [
     "PosForceControlParams",
     "PosVelControlParams",
     "RegisterAddress",
-    "RegisterResponse",
     "VelControlParams",
 ]

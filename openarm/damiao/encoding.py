@@ -7,7 +7,6 @@ including commands for setting control mode and MIT control.
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Generic, TypeVar
 
 import can
 
@@ -107,20 +106,6 @@ class MitControlParams:
     tau: float  # Desired torque in Nm
 
 
-T = TypeVar("T", int, float)  # Type variable for register value types
-
-
-@dataclass
-class RegisterResponse(Generic[T]):
-    """Register operation response data from Damiao motor.
-
-    Reference: DM_CAN.py __process_set_param_packet function lines 291-315
-    """
-
-    motor_id: int  # Motor slave ID that responded
-    register: int  # Register address that was accessed
-    value: T  # Register value (int for uint32, float for float32)
-    command: int  # Command code (0x55 for write, 0x33 for read)
 
 
 @dataclass
@@ -182,17 +167,14 @@ class PosForceControlParams:
     current_norm: float  # Normalized current 0-1 (scaled to 0-10000)
 
 
-async def decode_register_int(
-    bus: Bus, *, extended: bool = False
-) -> int | RegisterResponse[int]:
+async def decode_register_int(bus: Bus) -> int:
     """Decode register response with integer value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
-        extended: If True, return full RegisterResponse; if False, return just the value
 
     Returns:
-        int | RegisterResponse[int]: Register value or full response based on extended
+        int: Register value
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -209,28 +191,17 @@ async def decode_register_int(
         "<HBBI", message.data
     )
 
-    if not extended:
-        return register_value
-
-    return RegisterResponse[int](
-        motor_id=slave_id,
-        register=register_id,
-        value=register_value,
-        command=command_code,
-    )
+    return register_value
 
 
-async def decode_register_float(
-    bus: Bus, *, extended: bool = False
-) -> float | RegisterResponse[float]:
+async def decode_register_float(bus: Bus) -> float:
     """Decode register response with float value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
-        extended: If True, return full RegisterResponse; if False, return just the value
 
     Returns:
-        float | RegisterResponse[float]: Register value or full response
+        float: Register value
 
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
@@ -247,15 +218,7 @@ async def decode_register_float(
         "<HBBf", message.data
     )
 
-    if not extended:
-        return register_value
-
-    return RegisterResponse[float](
-        motor_id=slave_id,
-        register=register_id,
-        value=register_value,
-        command=command_code,
-    )
+    return register_value
 
 
 def encode_control_mit(
