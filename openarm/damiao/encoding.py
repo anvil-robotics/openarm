@@ -185,8 +185,8 @@ class PosForceControlParams:
     """
 
     position: float  # Desired position in radians
-    velocity: float  # Desired velocity in radians/second (scaled by 100)
-    current_norm: float  # Normalized current 0-1 (scaled to 0-10000)
+    velocity: float  # Desired velocity in radians/second 
+    current_norm: float  # Normalized current 0-1
 
 
 async def decode_register_int(bus: Bus) -> int:
