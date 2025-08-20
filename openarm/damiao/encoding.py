@@ -617,7 +617,7 @@ def encode_control_vel(bus: Bus, motor_id: int, params: VelControlParams) -> Non
     bus.send(message)
 
 
-def encode_control_pos_force(
+def encode_control_torque_pos(
     bus: Bus, motor_id: int, params: PosForceControlParams
 ) -> None:
     """Control motor in position+force mode (EMIT). Sends CAN message with params.

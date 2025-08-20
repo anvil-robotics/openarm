@@ -49,7 +49,7 @@ from .encoding import (
     decode_register_float,
     decode_register_int,
     encode_control_mit,
-    encode_control_pos_force,
+    encode_control_torque_pos,
     encode_control_pos_vel,
     encode_control_vel,
     encode_disable_motor,
@@ -196,7 +196,7 @@ async def _control_pos_force(args: argparse.Namespace) -> None:
         position=args.pos, velocity=args.vel, current_norm=args.i_norm
     )
     
-    encode_control_pos_force(bus, args.slave_id, params)
+    encode_control_torque_pos(bus, args.slave_id, params)
     state = await decode_motor_state(bus, args.slave_id, motor_limits)
     
     print(f"Position/force control sent to motor {args.slave_id}")

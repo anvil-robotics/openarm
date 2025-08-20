@@ -29,7 +29,7 @@ from .encoding import (
     decode_register_float,
     decode_register_int,
     encode_control_mit,
-    encode_control_pos_force,
+    encode_control_torque_pos,
     encode_control_pos_vel,
     encode_control_vel,
     encode_disable_motor,
@@ -201,7 +201,7 @@ class Motor:
 
         """
         # Encode position/force control and send request
-        encode_control_pos_force(self.bus, self.motor_id, params)
+        encode_control_torque_pos(self.bus, self.motor_id, params)
 
         # Return coroutine from asynchronous decode function
         return decode_motor_state(self.bus, self.motor_id, self.motor_limits)
