@@ -9,7 +9,6 @@ Commands:
     set-zero         Set motor zero position
     refresh          Get current motor status
     control          Control motor in various modes (MIT, pos_vel, vel, pos_force)
-    register         Read/write motor registers
     param            Get/set semantic motor parameters
     save             Save motor parameters to flash
 
@@ -17,7 +16,7 @@ Examples:
     python -m openarm.damiao enable --iface can0 --motor-type DM4310 1
     python -m openarm.damiao control mit --iface can0 --motor-type DM4310 1 50 0.3 0 0 0
     python -m openarm.damiao param get --iface can0 --motor-type DM4310 1 over_voltage
-    python -m openarm.damiao register read --iface can0 1 21 --as-float
+    python -m openarm.damiao param set --iface can0 --motor-type DM4310 1 max_speed 10.0
 
 """
 
@@ -37,15 +36,7 @@ from . import (
     MotorType,
     PosForceControlParams,
     PosVelControlParams,
-    RegisterAddress,
     VelControlParams,
-)
-from .encoding import (
-    decode_register_float,
-    decode_register_int,
-    encode_read_register,
-    encode_write_register_float,
-    encode_write_register_int,
 )
 
 
@@ -216,54 +207,6 @@ async def _control_pos_force(args: argparse.Namespace) -> None:
         f"Velocity: {state.velocity:.6f}, "
         f"Torque: {state.torque:.6f}"
     )
-
-
-async def _register_read(args: argparse.Namespace) -> None:
-    """Read motor register using encode/decode pattern."""
-    bus = _create_bus(args.iface)
-
-    # Convert register address if it's a name
-    if isinstance(args.address, str):
-        try:
-            address = RegisterAddress[args.address.upper()]
-        except KeyError:
-            _error(f"Unknown register name: {args.address}")
-            sys.exit(1)
-    else:
-        address = RegisterAddress(args.address)
-
-    encode_read_register(bus, args.slave_id, address)
-
-    if args.as_float:
-        value = await decode_register_float(bus)
-        _output(f"{value}")
-    else:
-        value = await decode_register_int(bus)
-        _output(f"{value}")
-
-
-async def _register_write(args: argparse.Namespace) -> None:
-    """Write motor register using encode/decode pattern."""
-    bus = _create_bus(args.iface)
-
-    # Convert register address if it's a name
-    if isinstance(args.address, str):
-        try:
-            address = RegisterAddress[args.address.upper()]
-        except KeyError:
-            _error(f"Unknown register name: {args.address}")
-            sys.exit(1)
-    else:
-        address = RegisterAddress(args.address)
-
-    if args.as_float:
-        encode_write_register_float(bus, args.slave_id, address, args.value)
-        value = await decode_register_float(bus)
-        _output(f"Written: {value}")
-    else:
-        encode_write_register_int(bus, args.slave_id, address, int(args.value))
-        value = await decode_register_int(bus)
-        _output(f"Written: {value}")
 
 
 async def _save_parameters(args: argparse.Namespace) -> None:
@@ -480,37 +423,6 @@ def _main() -> None:
     pos_force_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     pos_force_parser.add_argument("i_norm", type=float, help="Normalized current (0-1)")
     pos_force_parser.set_defaults(func=_control_pos_force)
-
-    # Register commands
-    register_parser = subparsers.add_parser(
-        "register", help="Motor register operations"
-    )
-    register_subparsers = register_parser.add_subparsers(
-        dest="register_op", required=True
-    )
-
-    # Register read
-    read_parser = register_subparsers.add_parser("read", help="Read motor register")
-    add_common_args(read_parser)
-    read_parser.add_argument(
-        "address", help="Register address (number or name like 'PMAX')"
-    )
-    read_parser.add_argument(
-        "--as-float", action="store_true", help="Read as float value"
-    )
-    read_parser.set_defaults(func=_register_read)
-
-    # Register write
-    write_parser = register_subparsers.add_parser("write", help="Write motor register")
-    add_common_args(write_parser)
-    write_parser.add_argument(
-        "address", help="Register address (number or name like 'PMAX')"
-    )
-    write_parser.add_argument("value", type=float, help="Value to write")
-    write_parser.add_argument(
-        "--as-float", action="store_true", help="Write as float value"
-    )
-    write_parser.set_defaults(func=_register_write)
 
     # Parameter commands (high-level)
     param_parser = subparsers.add_parser("param", help="Semantic parameter operations")
