@@ -104,6 +104,29 @@ def _float_to_uint(value: float, min_val: float, max_val: float, bits: int) -> i
     return int(normalized * scale)
 
 
+def _uint_to_float(value: int, min_val: float, max_val: float, bits: int) -> float:
+    """Convert unsigned integer to float value with scaling.
+
+    Args:
+        value: Unsigned integer value to convert
+        min_val: Minimum value in float range
+        max_val: Maximum value in float range
+        bits: Number of bits for the unsigned integer
+
+    Returns:
+        Scaled float value
+
+    Reference: DM_CAN.py uint_to_float function lines 494-498
+
+    """
+    # Scale from unsigned integer range to normalized [0, 1]
+    scale = (1 << bits) - 1
+    normalized = value / scale
+
+    # Scale to actual float range
+    return normalized * (max_val - min_val) + min_val
+
+
 @dataclass
 class MotorLimits:
     """Motor physical limits for parameter scaling.
@@ -333,11 +356,11 @@ async def decode_motor_state(
         motor_limits.tau_max,
     )
 
-    # Convert unsigned integers back to float engineering values using scaling
+    # Convert unsigned integers back to float engineering values using helper
     # Reference: DM_CAN.py uint_to_float function lines 494-498
-    position = (q_uint / ((1 << 16) - 1)) * (q_max - (-q_max)) + (-q_max)
-    velocity = (dq_uint / ((1 << 12) - 1)) * (dq_max - (-dq_max)) + (-dq_max)
-    torque = (tau_uint / ((1 << 12) - 1)) * (tau_max - (-tau_max)) + (-tau_max)
+    position = _uint_to_float(q_uint, -q_max, q_max, 16)
+    velocity = _uint_to_float(dq_uint, -dq_max, dq_max, 12)
+    torque = _uint_to_float(tau_uint, -tau_max, tau_max, 12)
 
     return MotorState(
         position=position,
