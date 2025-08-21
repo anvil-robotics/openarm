@@ -189,11 +189,12 @@ class PosForceControlParams:
     current_norm: float  # Normalized current 0-1
 
 
-async def decode_register_int(bus: Bus) -> int:
+async def decode_register_int(bus: Bus, master_id: int) -> int:
     """Decode register response with integer value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
+        master_id: Motor master ID to wait for response from
 
     Returns:
         int: Register value
@@ -201,10 +202,10 @@ async def decode_register_int(bus: Bus) -> int:
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
     """
-    # Wait for register response with master arbitration ID 0x7FF
+    # Wait for register response with master arbitration ID
     # Timeout to prevent indefinite blocking
     # Reference: Register response handling in DM_CAN.py switchControlMode retry loop
-    message = bus.recv(0x7FF, timeout=0.1)
+    message = bus.recv(master_id, timeout=0.1)
 
     # Unpack register response data in single operation
     # Format: '<HBBI' = slave_id(H) + command_code(B) + register_id(B) + value(I)
@@ -214,11 +215,12 @@ async def decode_register_int(bus: Bus) -> int:
     return register_value
 
 
-async def decode_register_float(bus: Bus) -> float:
+async def decode_register_float(bus: Bus, master_id: int) -> float:
     """Decode register response with float value. Waits for confirmation response.
 
     Args:
         bus: CAN bus instance for message reception
+        master_id: Motor master ID to wait for response from
 
     Returns:
         float: Register value
@@ -226,10 +228,10 @@ async def decode_register_float(bus: Bus) -> float:
     Reference: DM_CAN.py __process_set_param_packet function lines 291-315
 
     """
-    # Wait for register response with master arbitration ID 0x7FF
+    # Wait for register response with master arbitration ID
     # Timeout to prevent indefinite blocking
     # Reference: Register response handling in DM_CAN.py switchControlMode retry loop
-    message = bus.recv(0x7FF, timeout=0.1)
+    message = bus.recv(master_id, timeout=0.1)
 
     # Unpack register response data in single operation
     # Format: '<HBBf' = slave_id(H) + command_code(B) + register_id(B) + value(f)
@@ -511,11 +513,12 @@ def encode_refresh_status(bus: Bus, slave_id: int) -> None:
     bus.send(message)
 
 
-async def decode_acknowledgment(bus: Bus) -> AckResponse:
+async def decode_acknowledgment(bus: Bus, master_id: int) -> AckResponse:
     """Decode simple acknowledgment response. Waits for operation confirmation.
 
     Args:
         bus: CAN bus instance for message reception
+        master_id: Motor master ID to wait for response from
 
     Returns:
         AckResponse: Simple acknowledgment dataclass with slave_id, command, and success
@@ -523,10 +526,10 @@ async def decode_acknowledgment(bus: Bus) -> AckResponse:
     Reference: DM_CAN.py simple operations like save_motor_param
 
     """
-    # Wait for acknowledgment response with master arbitration ID 0x7FF
+    # Wait for acknowledgment response with master arbitration ID
     # Timeout to prevent indefinite blocking
     # Reference: Simple operation handling - no specific response format documented
-    message = bus.recv(0x7FF, timeout=0.1)
+    message = bus.recv(master_id, timeout=0.1)
 
     # Unpack acknowledgment response data according to basic protocol format
     # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + response_data(6*B)
