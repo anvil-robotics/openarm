@@ -1,65 +1,80 @@
 """NetCAN Server implementation."""
 
-from can import BusABC
+import asyncio
+import logging
 
-from .transport import Transport
+from can import Message
+
+from openarm.bus import AsyncBus
+
+from .transport import AsyncSocketTransport
 
 
-class Server:
-    """NetCAN server that handles CAN bus communication with multiple clients."""
+class AsyncServer:
+    """Async NetCAN server that handles CAN bus communication with multiple clients."""
 
-    def __init__(self, bus: BusABC) -> None:
-        """Initialize NetCAN server.
+    def __init__(self, bus: AsyncBus) -> None:
+        """Initialize async NetCAN server.
 
         Args:
-            bus: CAN bus interface to bridge with network clients
+            bus: Async CAN bus interface to bridge with network clients
 
         """
-        self.trans_map: dict[int, Transport] = {}
         self.bus = bus
+        self.clients: set[AsyncSocketTransport] = set()
+        self.logger = logging.getLogger(__name__)
+        self.running = False
 
-    def attach(self, trans: Transport) -> None:
-        """Attach a transport connection to the server.
-
-        Args:
-            trans: Transport connection to attach
-
-        """
-        fd = trans.fileno()
-        self.trans_map[fd] = trans
-
-    def run(self, fd: int) -> bool:
-        """Process incoming data from a file descriptor.
-
-        Handles bidirectional message routing between CAN bus and network clients.
-        Messages from the bus are broadcast to all connected clients.
-        Messages from clients are sent to the CAN bus.
+    async def handle_transport(self, transport: AsyncSocketTransport) -> None:
+        """Handle a transport connection.
 
         Args:
-            fd: File descriptor with pending data
-
-        Returns:
-            True if connection remains active, False if connection closed
+            transport: AsyncSocketTransport instance to handle
 
         """
-        # Handle messages from CAN bus - broadcast to all clients
-        if fd == self.bus.fileno():
-            msg = self.bus.recv()
-            for [_, trans] in self.trans_map.items():
-                trans.encode(msg)
-            return True
+        self.clients.add(transport)
 
-        # Handle messages from network client - forward to CAN bus
-        trans = self.trans_map[fd]
-        if trans:
-            msg = trans.decode()
-            if msg is None:
-                # Client disconnected
-                del self.trans_map[fd]
-                return False
+        try:
+            # Read messages from transport and forward to CAN bus
+            while True:
+                msg = await transport.decode()
+                if msg is None:
+                    # Transport disconnected
+                    break
 
-            # Forward message to CAN bus
-            self.bus.send(msg)
-            return True
+                # Forward message directly to CAN bus
+                self.bus.send(msg)
 
-        return True
+        finally:
+            # Remove transport from clients set
+            self.clients.discard(transport)
+
+    async def broadcast(self, msg: Message) -> None:
+        """Broadcast a CAN message to all connected clients.
+
+        Args:
+            msg: CAN message to broadcast
+
+        """
+        # Send to all clients concurrently
+        if self.clients:
+            # Create tasks for all client sends
+            tasks = [transport.encode(msg) for transport in self.clients]
+            # Wait for all to complete (or fail)
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def run(self) -> None:
+        """Run the main server loop that reads from CAN bus and broadcasts."""
+        self.running = True
+
+        try:
+            # Continuously receive messages
+            while self.running:
+                msg = await self.bus.recv()
+                await self.broadcast(msg)
+        except Exception:
+            self.logger.exception("Error in bus reader loop")
+
+    def stop(self) -> None:
+        """Stop the server."""
+        self.running = False
