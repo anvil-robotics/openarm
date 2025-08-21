@@ -129,11 +129,31 @@ class Motor:
         Reference: DM_CAN.py Motor class with SlaveID and MasterID
 
         """
-        self.bus = bus
-        self.slave_id = slave_id  # SlaveID for sending commands
-        self.master_id = master_id  # MasterID for receiving responses
-        self.motor_type = motor_type
-        self.motor_limits = MOTOR_LIMITS[motor_type]
+        self._bus = bus
+        self._slave_id = slave_id  # SlaveID for sending commands
+        self._master_id = master_id  # MasterID for receiving responses
+        self._motor_type = motor_type
+        self._motor_limits = MOTOR_LIMITS[motor_type]
+
+    @property
+    def bus(self) -> Bus:
+        """Get CAN bus instance."""
+        return self._bus
+
+    @property
+    def slave_id(self) -> int:
+        """Get motor slave ID for sending commands."""
+        return self._slave_id
+
+    @property
+    def master_id(self) -> int:
+        """Get motor master ID for receiving responses."""
+        return self._master_id
+
+    @property
+    def motor_type(self) -> MotorType:
+        """Get motor type."""
+        return self._motor_type
 
     def set_control_mode(self, mode: ControlMode) -> Coroutine[Any, Any, int]:
         """Set motor control mode. Returns coroutine to be awaited.
@@ -150,11 +170,11 @@ class Motor:
         # Write control mode to register 10 as integer value
         # Reference: DM_CAN.py switchControlMode using __write_motor_param with RID=10
         encode_write_register_int(
-            self.bus, self.slave_id, RegisterAddress.CTRL_MODE, int(mode)
+            self._bus, self._slave_id, RegisterAddress.CTRL_MODE, int(mode)
         )
 
         # Return coroutine from asynchronous decode function
-        return decode_register_int(self.bus, self.master_id)
+        return decode_register_int(self._bus, self._master_id)
 
     def control_mit(self, params: MitControlParams) -> Coroutine[Any, Any, MotorState]:
         """Control motor in MIT mode. Returns coroutine to be awaited.
@@ -169,10 +189,10 @@ class Motor:
 
         """
         # Encode MIT control and send request
-        encode_control_mit(self.bus, self.slave_id, self.motor_limits, params)
+        encode_control_mit(self._bus, self._slave_id, self._motor_limits, params)
 
         # Return coroutine from asynchronous decode function
-        return decode_motor_state(self.bus, self.master_id, self.motor_limits)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
     def control_pos_vel(
         self, params: PosVelControlParams
@@ -189,10 +209,10 @@ class Motor:
 
         """
         # Encode position/velocity control and send request
-        encode_control_pos_vel(self.bus, self.slave_id, params)
+        encode_control_pos_vel(self._bus, self._slave_id, params)
 
         # Return coroutine from asynchronous decode function
-        return decode_motor_state(self.bus, self.master_id, self.motor_limits)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
     def control_vel(self, params: VelControlParams) -> Coroutine[Any, Any, MotorState]:
         """Control motor in velocity mode. Returns coroutine to be awaited.
@@ -207,10 +227,10 @@ class Motor:
 
         """
         # Encode velocity control and send request
-        encode_control_vel(self.bus, self.slave_id, params)
+        encode_control_vel(self._bus, self._slave_id, params)
 
         # Return coroutine from asynchronous decode function
-        return decode_motor_state(self.bus, self.master_id, self.motor_limits)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
     def control_pos_force(
         self, params: PosForceControlParams
@@ -227,10 +247,10 @@ class Motor:
 
         """
         # Encode position/force control and send request
-        encode_control_torque_pos(self.bus, self.slave_id, params)
+        encode_control_torque_pos(self._bus, self._slave_id, params)
 
         # Return coroutine from asynchronous decode function
-        return decode_motor_state(self.bus, self.master_id, self.motor_limits)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
     def enable(self) -> Coroutine[Any, Any, AckResponse]:
         """Enable motor. Returns coroutine to be awaited.
@@ -242,10 +262,10 @@ class Motor:
 
         """
         # Encode enable command and send request
-        encode_enable_motor(self.bus, self.slave_id)
+        encode_enable_motor(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self.bus, self.master_id)
+        return decode_acknowledgment(self._bus, self._master_id)
 
     def enable_legacy(
         self, control_mode: ControlMode
@@ -262,10 +282,10 @@ class Motor:
 
         """
         # Encode legacy enable command and send request
-        encode_enable_motor_legacy(self.bus, self.slave_id, control_mode)
+        encode_enable_motor_legacy(self._bus, self._slave_id, control_mode)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self.bus, self.master_id)
+        return decode_acknowledgment(self._bus, self._master_id)
 
     def disable(self) -> Coroutine[Any, Any, AckResponse]:
         """Disable motor. Returns coroutine to be awaited.
@@ -277,10 +297,10 @@ class Motor:
 
         """
         # Encode disable command and send request
-        encode_disable_motor(self.bus, self.slave_id)
+        encode_disable_motor(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self.bus, self.master_id)
+        return decode_acknowledgment(self._bus, self._master_id)
 
     def set_zero_position(self) -> Coroutine[Any, Any, AckResponse]:
         """Set motor zero position. Returns coroutine to be awaited.
@@ -292,10 +312,10 @@ class Motor:
 
         """
         # Encode set zero position command and send request
-        encode_set_zero_position(self.bus, self.slave_id)
+        encode_set_zero_position(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self.bus, self.master_id)
+        return decode_acknowledgment(self._bus, self._master_id)
 
     # Voltage Protection Parameters
     def get_under_voltage(self) -> Coroutine[Any, Any, float]:
@@ -307,8 +327,8 @@ class Motor:
         Range: (10.0, 3.4E38] volts
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.UV_VALUE)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.UV_VALUE)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_under_voltage(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor under-voltage protection value. Returns coroutine to be awaited.
@@ -321,9 +341,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.UV_VALUE, value
+            self._bus, self._slave_id, RegisterAddress.UV_VALUE, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_over_voltage(self) -> Coroutine[Any, Any, float]:
         """Get motor over-voltage protection value. Returns coroutine to be awaited.
@@ -332,8 +352,8 @@ class Motor:
             Coroutine that yields float when awaited
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.OV_VALUE)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OV_VALUE)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_over_voltage(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor over-voltage protection value. Returns coroutine to be awaited.
@@ -346,9 +366,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.OV_VALUE, value
+            self._bus, self._slave_id, RegisterAddress.OV_VALUE, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Motor Characteristics
     def get_torque_coefficient(self) -> Coroutine[Any, Any, float]:
@@ -360,8 +380,8 @@ class Motor:
         Range: [0.0, 3.4E38]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.KT_VALUE)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KT_VALUE)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_torque_coefficient(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor torque coefficient. Returns coroutine to be awaited.
@@ -374,9 +394,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.KT_VALUE, value
+            self._bus, self._slave_id, RegisterAddress.KT_VALUE, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_gear_efficiency(self) -> Coroutine[Any, Any, float]:
         """Get gear torque efficiency. Returns coroutine to be awaited.
@@ -387,8 +407,8 @@ class Motor:
         Range: (0.0, 1.0]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.GREF)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.GREF)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_gear_efficiency(self, value: float) -> Coroutine[Any, Any, float]:
         """Set gear torque efficiency. Returns coroutine to be awaited.
@@ -401,9 +421,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.GREF, value
+            self._bus, self._slave_id, RegisterAddress.GREF, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Protection Limits
     def get_over_temperature(self) -> Coroutine[Any, Any, float]:
@@ -415,8 +435,8 @@ class Motor:
         Range: [80.0, 200) degrees Celsius
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.OT_VALUE)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OT_VALUE)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_over_temperature(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor over-temperature protection value. Returns coroutine to be awaited.
@@ -429,9 +449,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.OT_VALUE, value
+            self._bus, self._slave_id, RegisterAddress.OT_VALUE, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_over_current(self) -> Coroutine[Any, Any, float]:
         """Get motor over-current protection value. Returns coroutine to be awaited.
@@ -442,8 +462,8 @@ class Motor:
         Range: (0.0, 1.0) normalized current
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.OC_VALUE)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OC_VALUE)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_over_current(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor over-current protection value. Returns coroutine to be awaited.
@@ -456,9 +476,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.OC_VALUE, value
+            self._bus, self._slave_id, RegisterAddress.OC_VALUE, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Mapping Limits
     def get_position_limit(self) -> Coroutine[Any, Any, float]:
@@ -470,8 +490,8 @@ class Motor:
         Range: (0.0, 3.4E38] radians
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.PMAX)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.PMAX)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_position_limit(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor position mapping maximum value. Returns coroutine to be awaited.
@@ -484,9 +504,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.PMAX, value
+            self._bus, self._slave_id, RegisterAddress.PMAX, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_velocity_limit(self) -> Coroutine[Any, Any, float]:
         """Get motor velocity mapping maximum value. Returns coroutine to be awaited.
@@ -497,8 +517,8 @@ class Motor:
         Range: (0.0, 3.4E38] rad/s
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.VMAX)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.VMAX)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_velocity_limit(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor velocity mapping maximum value. Returns coroutine to be awaited.
@@ -511,9 +531,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.VMAX, value
+            self._bus, self._slave_id, RegisterAddress.VMAX, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_torque_limit(self) -> Coroutine[Any, Any, float]:
         """Get motor torque mapping maximum value. Returns coroutine to be awaited.
@@ -524,8 +544,8 @@ class Motor:
         Range: (0.0, 3.4E38] Nm
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.TMAX)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.TMAX)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_torque_limit(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor torque mapping maximum value. Returns coroutine to be awaited.
@@ -538,9 +558,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.TMAX, value
+            self._bus, self._slave_id, RegisterAddress.TMAX, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Control Loop Parameters
     def get_velocity_kp(self) -> Coroutine[Any, Any, float]:
@@ -552,8 +572,8 @@ class Motor:
         Range: [0.0, 3.4E38]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.KP_ASR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KP_ASR)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_velocity_kp(self, value: float) -> Coroutine[Any, Any, float]:
         """Set velocity loop proportional gain. Returns coroutine to be awaited.
@@ -566,9 +586,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.KP_ASR, value
+            self._bus, self._slave_id, RegisterAddress.KP_ASR, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_velocity_ki(self) -> Coroutine[Any, Any, float]:
         """Get velocity loop integral gain. Returns coroutine to be awaited.
@@ -579,8 +599,8 @@ class Motor:
         Range: [0.0, 3.4E38]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.KI_ASR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KI_ASR)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_velocity_ki(self, value: float) -> Coroutine[Any, Any, float]:
         """Set velocity loop integral gain. Returns coroutine to be awaited.
@@ -593,9 +613,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.KI_ASR, value
+            self._bus, self._slave_id, RegisterAddress.KI_ASR, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_position_kp(self) -> Coroutine[Any, Any, float]:
         """Get position loop proportional gain. Returns coroutine to be awaited.
@@ -606,8 +626,8 @@ class Motor:
         Range: [0.0, 3.4E38]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.KP_APR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KP_APR)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_position_kp(self, value: float) -> Coroutine[Any, Any, float]:
         """Set position loop proportional gain. Returns coroutine to be awaited.
@@ -620,9 +640,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.KP_APR, value
+            self._bus, self._slave_id, RegisterAddress.KP_APR, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_position_ki(self) -> Coroutine[Any, Any, float]:
         """Get position loop integral gain. Returns coroutine to be awaited.
@@ -633,8 +653,8 @@ class Motor:
         Range: [0.0, 3.4E38]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.KI_APR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KI_APR)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_position_ki(self, value: float) -> Coroutine[Any, Any, float]:
         """Set position loop integral gain. Returns coroutine to be awaited.
@@ -647,9 +667,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.KI_APR, value
+            self._bus, self._slave_id, RegisterAddress.KI_APR, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Read-Only Motor Information
     def get_hardware_version(self) -> Coroutine[Any, Any, int]:
@@ -659,8 +679,8 @@ class Motor:
             Coroutine that yields int when awaited
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.HW_VER)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.HW_VER)
+        return decode_register_int(self._bus, self._master_id)
 
     def get_software_version(self) -> Coroutine[Any, Any, int]:
         """Get motor software version. Returns coroutine to be awaited.
@@ -669,8 +689,8 @@ class Motor:
             Coroutine that yields int when awaited
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.SW_VER)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SW_VER)
+        return decode_register_int(self._bus, self._master_id)
 
     def get_serial_number(self) -> Coroutine[Any, Any, int]:
         """Get motor serial number. Returns coroutine to be awaited.
@@ -679,8 +699,8 @@ class Motor:
             Coroutine that yields int when awaited
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.SN)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SN)
+        return decode_register_int(self._bus, self._master_id)
 
     def get_gear_ratio(self) -> Coroutine[Any, Any, float]:
         """Get motor gear reduction ratio. Returns coroutine to be awaited.
@@ -689,8 +709,8 @@ class Motor:
             Coroutine that yields float when awaited
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.GR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.GR)
+        return decode_register_float(self._bus, self._master_id)
 
     # Motion Parameters
     def get_acceleration(self) -> Coroutine[Any, Any, float]:
@@ -702,8 +722,8 @@ class Motor:
         Range: (0.0, 3.4E38)
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.ACC)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.ACC)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_acceleration(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor acceleration parameter. Returns coroutine to be awaited.
@@ -715,8 +735,10 @@ class Motor:
             Coroutine that yields float when awaited
 
         """
-        encode_write_register_float(self.bus, self.slave_id, RegisterAddress.ACC, value)
-        return decode_register_float(self.bus, self.master_id)
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.ACC, value
+        )
+        return decode_register_float(self._bus, self._master_id)
 
     def get_deceleration(self) -> Coroutine[Any, Any, float]:
         """Get motor deceleration parameter. Returns coroutine to be awaited.
@@ -727,8 +749,8 @@ class Motor:
         Range: [-3.4E38, 0.0)
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.DEC)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DEC)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_deceleration(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor deceleration parameter. Returns coroutine to be awaited.
@@ -740,8 +762,10 @@ class Motor:
             Coroutine that yields float when awaited
 
         """
-        encode_write_register_float(self.bus, self.slave_id, RegisterAddress.DEC, value)
-        return decode_register_float(self.bus, self.master_id)
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.DEC, value
+        )
+        return decode_register_float(self._bus, self._master_id)
 
     def get_max_speed(self) -> Coroutine[Any, Any, float]:
         """Get motor maximum speed parameter. Returns coroutine to be awaited.
@@ -752,8 +776,8 @@ class Motor:
         Range: (0.0, 3.4E38] rad/s
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.MAX_SPD)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.MAX_SPD)
+        return decode_register_float(self._bus, self._master_id)
 
     def set_max_speed(self, value: float) -> Coroutine[Any, Any, float]:
         """Set motor maximum speed parameter. Returns coroutine to be awaited.
@@ -766,9 +790,9 @@ class Motor:
 
         """
         encode_write_register_float(
-            self.bus, self.slave_id, RegisterAddress.MAX_SPD, value
+            self._bus, self._slave_id, RegisterAddress.MAX_SPD, value
         )
-        return decode_register_float(self.bus, self.master_id)
+        return decode_register_float(self._bus, self._master_id)
 
     # Communication Parameters
     def get_master_id(self) -> Coroutine[Any, Any, int]:
@@ -780,8 +804,8 @@ class Motor:
         Range: [0, 0x7FF]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.MST_ID)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.MST_ID)
+        return decode_register_int(self._bus, self._master_id)
 
     def set_master_id(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor feedback ID (Master ID). Returns coroutine to be awaited.
@@ -794,9 +818,9 @@ class Motor:
 
         """
         encode_write_register_int(
-            self.bus, self.slave_id, RegisterAddress.MST_ID, value
+            self._bus, self._slave_id, RegisterAddress.MST_ID, value
         )
-        return decode_register_int(self.bus, self.master_id)
+        return decode_register_int(self._bus, self._master_id)
 
     def get_slave_id(self) -> Coroutine[Any, Any, int]:
         """Get motor receive ID (Slave ID). Returns coroutine to be awaited.
@@ -807,8 +831,8 @@ class Motor:
         Range: [0, 0x7FF]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.ESC_ID)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.ESC_ID)
+        return decode_register_int(self._bus, self._master_id)
 
     def set_slave_id(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor receive ID (Slave ID). Returns coroutine to be awaited.
@@ -821,9 +845,9 @@ class Motor:
 
         """
         encode_write_register_int(
-            self.bus, self.slave_id, RegisterAddress.ESC_ID, value
+            self._bus, self._slave_id, RegisterAddress.ESC_ID, value
         )
-        return decode_register_int(self.bus, self.master_id)
+        return decode_register_int(self._bus, self._master_id)
 
     def get_timeout(self) -> Coroutine[Any, Any, int]:
         """Get motor timeout alarm time. Returns coroutine to be awaited.
@@ -834,8 +858,8 @@ class Motor:
         Range: [0, 2^32-1]
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.TIMEOUT)
-        return decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.TIMEOUT)
+        return decode_register_int(self._bus, self._master_id)
 
     def set_timeout(self, value: int) -> Coroutine[Any, Any, int]:
         """Set motor timeout alarm time. Returns coroutine to be awaited.
@@ -848,9 +872,9 @@ class Motor:
 
         """
         encode_write_register_int(
-            self.bus, self.slave_id, RegisterAddress.TIMEOUT, value
+            self._bus, self._slave_id, RegisterAddress.TIMEOUT, value
         )
-        return decode_register_int(self.bus, self.master_id)
+        return decode_register_int(self._bus, self._master_id)
 
     async def get_can_baudrate(self) -> int:
         """Get CAN baud rate. Returns actual baudrate in bps.
@@ -859,8 +883,8 @@ class Motor:
             Actual baudrate value in bps (100000, 250000, 500000, 750000, or 1000000)
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.CAN_BR)
-        code = await decode_register_int(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.CAN_BR)
+        code = await decode_register_int(self._bus, self._master_id)
         return _CODE_TO_BAUDRATE.get(code, code)  # Return code if unknown
 
     async def set_can_baudrate(
@@ -881,8 +905,10 @@ class Motor:
 
         """
         code = _BAUDRATE_TO_CODE[value]
-        encode_write_register_int(self.bus, self.slave_id, RegisterAddress.CAN_BR, code)
-        result_code = await decode_register_int(self.bus, self.master_id)
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.CAN_BR, code
+        )
+        result_code = await decode_register_int(self._bus, self._master_id)
         return _CODE_TO_BAUDRATE.get(result_code, result_code)
 
     # Read-Only Calibration and Position Methods
@@ -895,8 +921,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.U_OFF)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.U_OFF)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_phase_v_offset(self) -> Coroutine[Any, Any, float]:
         """Get V phase offset calibration value. Returns coroutine to be awaited.
@@ -907,8 +933,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.V_OFF)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.V_OFF)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_compensation_factor_1(self) -> Coroutine[Any, Any, float]:
         """Get compensation factor 1 calibration value. Returns coroutine to be awaited.
@@ -919,8 +945,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.K1)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.K1)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_compensation_factor_2(self) -> Coroutine[Any, Any, float]:
         """Get compensation factor 2 calibration value. Returns coroutine to be awaited.
@@ -931,8 +957,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.K2)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.K2)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_angle_offset(self) -> Coroutine[Any, Any, float]:
         """Get angle offset calibration value. Returns coroutine to be awaited.
@@ -943,8 +969,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.M_OFF)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.M_OFF)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_direction(self) -> Coroutine[Any, Any, float]:
         """Get motor direction calibration value. Returns coroutine to be awaited.
@@ -955,8 +981,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.DIR)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DIR)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_motor_position(self) -> Coroutine[Any, Any, float]:
         """Get motor position. Returns coroutine to be awaited.
@@ -967,8 +993,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.P_M)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.P_M)
+        return decode_register_float(self._bus, self._master_id)
 
     def get_output_shaft_position(self) -> Coroutine[Any, Any, float]:
         """Get output shaft position. Returns coroutine to be awaited.
@@ -979,8 +1005,8 @@ class Motor:
         Read-Only Parameter
 
         """
-        encode_read_register(self.bus, self.slave_id, RegisterAddress.XOUT)
-        return decode_register_float(self.bus, self.master_id)
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.XOUT)
+        return decode_register_float(self._bus, self._master_id)
 
     def save_parameters(self) -> Coroutine[Any, Any, AckResponse]:
         """Save motor parameters to flash. Returns coroutine to be awaited.
@@ -992,10 +1018,10 @@ class Motor:
 
         """
         # Encode save parameters command and send request
-        encode_save_parameters(self.bus, self.slave_id)
+        encode_save_parameters(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self.bus, self.master_id)
+        return decode_acknowledgment(self._bus, self._master_id)
 
     def refresh_status(self) -> Coroutine[Any, Any, MotorState]:
         """Refresh motor status. Returns coroutine to be awaited.
@@ -1007,10 +1033,10 @@ class Motor:
 
         """
         # Encode refresh status command and send request
-        encode_refresh_status(self.bus, self.slave_id)
+        encode_refresh_status(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_motor_state(self.bus, self.master_id, self.motor_limits)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
 
 __all__ = [
