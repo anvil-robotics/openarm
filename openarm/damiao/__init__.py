@@ -671,6 +671,144 @@ class Motor:
         )
         return decode_register_float(self._bus, self._master_id)
 
+    # Current and Speed Loop Parameters
+    def get_current_loop_bandwidth(self) -> Coroutine[Any, Any, float]:
+        """Get current loop bandwidth. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [100.0, 10000.0] Hz
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.I_BW)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_current_loop_bandwidth(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set current loop bandwidth. Returns coroutine to be awaited.
+
+        Args:
+            value: Current loop bandwidth in Hz [100.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.I_BW, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_damping(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop damping coefficient. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [1.0, 30.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DETA)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_damping(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set speed loop damping coefficient. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop damping coefficient [1.0, 30.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.DETA, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_filter_bandwidth(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop filter bandwidth. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 500.0) Hz
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.V_BW)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_filter_bandwidth(
+        self, value: float
+    ) -> Coroutine[Any, Any, float]:
+        """Set speed loop filter bandwidth. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop filter bandwidth in Hz (0.0, 500.0)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.V_BW, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_current_loop_gain(self) -> Coroutine[Any, Any, float]:
+        """Get current loop gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [100.0, 10000.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.IQ_C1)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_current_loop_gain(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set current loop gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Current loop gain [100.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.IQ_C1, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_gain(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 10000.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.VL_C1)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_gain(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set speed loop gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop gain (0.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.VL_C1, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
     # Read-Only Motor Information
     def get_hardware_version(self) -> Coroutine[Any, Any, int]:
         """Get motor hardware version. Returns coroutine to be awaited.
@@ -711,6 +849,90 @@ class Motor:
         """
         encode_read_register(self._bus, self._slave_id, RegisterAddress.GR)
         return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_damping(self) -> Coroutine[Any, Any, float]:
+        """Get motor damping coefficient. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DAMP)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_inertia(self) -> Coroutine[Any, Any, float]:
+        """Get motor inertia. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.INERTIA)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_pole_pairs(self) -> Coroutine[Any, Any, int]:
+        """Get motor pole pairs (NPP). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.NPP)
+        return decode_register_int(self._bus, self._master_id)
+
+    def get_motor_phase_resistance(self) -> Coroutine[Any, Any, float]:
+        """Get motor phase resistance (Rs). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.RS)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_phase_inductance(self) -> Coroutine[Any, Any, float]:
+        """Get motor phase inductance (Ls). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.LS)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_flux(self) -> Coroutine[Any, Any, float]:
+        """Get motor flux value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.FLUX)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_sub_version(self) -> Coroutine[Any, Any, int]:
+        """Get motor sub-version. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SUB_VER)
+        return decode_register_int(self._bus, self._master_id)
 
     # Motion Parameters
     def get_acceleration(self) -> Coroutine[Any, Any, float]:
