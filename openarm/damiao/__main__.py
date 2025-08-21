@@ -262,30 +262,60 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
 
     # Map parameter names to Motor class methods
     param_methods = {
+        # Voltage Protection
         "under_voltage": motor.get_under_voltage,
         "over_voltage": motor.get_over_voltage,
+        # Motor Characteristics
         "torque_coefficient": motor.get_torque_coefficient,
         "gear_efficiency": motor.get_gear_efficiency,
+        # Protection Limits
         "over_temperature": motor.get_over_temperature,
         "over_current": motor.get_over_current,
+        # Mapping Limits
         "position_limit": motor.get_position_limit,
         "velocity_limit": motor.get_velocity_limit,
         "torque_limit": motor.get_torque_limit,
+        # Control Loop Parameters
         "velocity_kp": motor.get_velocity_kp,
         "velocity_ki": motor.get_velocity_ki,
         "position_kp": motor.get_position_kp,
         "position_ki": motor.get_position_ki,
+        # Current and Speed Loop Parameters (NEW)
+        "current_loop_bandwidth": motor.get_current_loop_bandwidth,
+        "speed_loop_damping": motor.get_speed_loop_damping,
+        "speed_loop_filter_bandwidth": motor.get_speed_loop_filter_bandwidth,
+        "current_loop_gain": motor.get_current_loop_gain,
+        "speed_loop_gain": motor.get_speed_loop_gain,
+        # Read-Only Motor Information
         "hardware_version": motor.get_hardware_version,
         "software_version": motor.get_software_version,
         "serial_number": motor.get_serial_number,
         "gear_ratio": motor.get_gear_ratio,
+        "motor_damping": motor.get_motor_damping,  # NEW
+        "motor_inertia": motor.get_motor_inertia,  # NEW
+        "motor_pole_pairs": motor.get_motor_pole_pairs,  # NEW
+        "motor_phase_resistance": motor.get_motor_phase_resistance,  # NEW
+        "motor_phase_inductance": motor.get_motor_phase_inductance,  # NEW
+        "motor_flux": motor.get_motor_flux,  # NEW
+        "sub_version": motor.get_sub_version,  # NEW
+        # Motion Parameters
         "acceleration": motor.get_acceleration,
         "deceleration": motor.get_deceleration,
         "max_speed": motor.get_max_speed,
+        # Communication Parameters
         "master_id": motor.get_master_id,
         "slave_id": motor.get_slave_id,
         "timeout": motor.get_timeout,
         "can_baudrate": motor.get_can_baudrate,
+        # Read-Only Calibration and Position
+        "phase_u_offset": motor.get_phase_u_offset,  # NEW
+        "phase_v_offset": motor.get_phase_v_offset,  # NEW
+        "compensation_factor_1": motor.get_compensation_factor_1,  # NEW
+        "compensation_factor_2": motor.get_compensation_factor_2,  # NEW
+        "angle_offset": motor.get_angle_offset,  # NEW
+        "direction": motor.get_direction,  # NEW
+        "motor_position": motor.get_motor_position,  # NEW
+        "output_shaft_position": motor.get_output_shaft_position,  # NEW
     }
 
     if param_name not in param_methods:
@@ -310,26 +340,40 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
 
     # Map parameter names to Motor class setter methods
     param_methods = {
+        # Voltage Protection
         "under_voltage": motor.set_under_voltage,
         "over_voltage": motor.set_over_voltage,
+        # Motor Characteristics
         "torque_coefficient": motor.set_torque_coefficient,
         "gear_efficiency": motor.set_gear_efficiency,
+        # Protection Limits
         "over_temperature": motor.set_over_temperature,
         "over_current": motor.set_over_current,
+        # Mapping Limits
         "position_limit": motor.set_position_limit,
         "velocity_limit": motor.set_velocity_limit,
         "torque_limit": motor.set_torque_limit,
+        # Control Loop Parameters
         "velocity_kp": motor.set_velocity_kp,
         "velocity_ki": motor.set_velocity_ki,
         "position_kp": motor.set_position_kp,
         "position_ki": motor.set_position_ki,
+        # Current and Speed Loop Parameters (NEW)
+        "current_loop_bandwidth": motor.set_current_loop_bandwidth,
+        "speed_loop_damping": motor.set_speed_loop_damping,
+        "speed_loop_filter_bandwidth": motor.set_speed_loop_filter_bandwidth,
+        "current_loop_gain": motor.set_current_loop_gain,
+        "speed_loop_gain": motor.set_speed_loop_gain,
+        # Motion Parameters
         "acceleration": motor.set_acceleration,
         "deceleration": motor.set_deceleration,
         "max_speed": motor.set_max_speed,
+        # Communication Parameters
         "master_id": motor.set_master_id,
         "slave_id": motor.set_slave_id,
         "timeout": motor.set_timeout,
         "can_baudrate": motor.set_can_baudrate,
+        # Note: Read-only parameters are not included in setter methods
     }
 
     if param_name not in param_methods:
