@@ -285,7 +285,7 @@ def encode_control_mit(
 
     # Send directly to motor's slave ID for MIT control
     # Reference: DM_CAN.py __send_data call with DM_Motor.SlaveID in controlMIT
-    message = can.Message(arbitration_id=slave_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -377,7 +377,7 @@ def encode_read_register(
 
     # Send to master arbitration ID 0x7FF for register operations
     # Reference: DM_CAN.py __send_data calls with 0x7FF for register reads
-    message = can.Message(arbitration_id=0x7FF, data=data)
+    message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -410,7 +410,7 @@ def encode_write_register_int(
 
     # Send to master arbitration ID 0x7FF for register operations
     # Reference: DM_CAN.py __send_data calls with 0x7FF for register writes
-    message = can.Message(arbitration_id=0x7FF, data=data)
+    message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -443,7 +443,7 @@ def encode_write_register_float(
 
     # Send to master arbitration ID 0x7FF for register operations
     # Reference: DM_CAN.py __send_data calls with 0x7FF for register writes
-    message = can.Message(arbitration_id=0x7FF, data=data)
+    message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -475,7 +475,7 @@ def encode_save_parameters(bus: Bus, slave_id: int) -> None:
 
     # Send to master arbitration ID 0x7FF for register operations
     # Reference: DM_CAN.py __send_data calls with 0x7FF for save operations
-    message = can.Message(arbitration_id=0x7FF, data=data)
+    message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -507,7 +507,7 @@ def encode_refresh_status(bus: Bus, slave_id: int) -> None:
 
     # Send to master arbitration ID 0x7FF for register operations
     # Reference: DM_CAN.py __send_data calls with 0x7FF for refresh operations
-    message = can.Message(arbitration_id=0x7FF, data=data)
+    message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -563,7 +563,9 @@ def encode_control_pos_vel(
 
     # Send to motor ID + 0x100 offset for position/velocity control mode
     # Reference: DM_CAN.py control_Pos_Vel motorid calculation line 140
-    message = can.Message(arbitration_id=0x100 + slave_id, data=data)
+    message = can.Message(
+        arbitration_id=0x100 + slave_id, data=data, is_extended_id=False
+    )
     bus.send(message)
 
 
@@ -587,7 +589,9 @@ def encode_control_vel(bus: Bus, slave_id: int, params: VelControlParams) -> Non
 
     # Send to motor ID + 0x200 offset for velocity control mode
     # Reference: DM_CAN.py control_Vel motorid calculation line 158
-    message = can.Message(arbitration_id=0x200 + slave_id, data=data)
+    message = can.Message(
+        arbitration_id=0x200 + slave_id, data=data, is_extended_id=False
+    )
     bus.send(message)
 
 
@@ -623,7 +627,9 @@ def encode_control_torque_pos(
 
     # Send to motor ID + 0x300 offset for position/force control mode
     # Reference: DM_CAN.py control_pos_force motorid calculation line 175
-    message = can.Message(arbitration_id=0x300 + slave_id, data=data)
+    message = can.Message(
+        arbitration_id=0x300 + slave_id, data=data, is_extended_id=False
+    )
     bus.send(message)
 
 
@@ -646,7 +652,7 @@ def encode_enable_motor(bus: Bus, slave_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in enable function line 193
-    message = can.Message(arbitration_id=slave_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -669,7 +675,7 @@ def encode_disable_motor(bus: Bus, slave_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in disable function line 213
-    message = can.Message(arbitration_id=slave_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -692,7 +698,7 @@ def encode_set_zero_position(bus: Bus, slave_id: int) -> None:
 
     # Send directly to motor's slave ID for control commands
     # Reference: DM_CAN.py __control_cmd usage in set_zero_position function line 221
-    message = can.Message(arbitration_id=slave_id, data=data)
+    message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
 
 
@@ -722,5 +728,5 @@ def encode_enable_motor_legacy(
 
     # Send to calculated enable ID for legacy firmware compatibility
     # Reference: DM_CAN.py enable_old __send_data call line 205
-    message = can.Message(arbitration_id=enable_id, data=data)
+    message = can.Message(arbitration_id=enable_id, data=data, is_extended_id=False)
     bus.send(message)
