@@ -1,6 +1,7 @@
 """CAN bus message multiplexer for filtering messages by arbitration ID."""
 
 from asyncio import Queue, QueueFull, get_running_loop
+from collections import defaultdict
 from collections.abc import Coroutine
 
 import can
@@ -17,7 +18,7 @@ class Bus:
 
         """
         self.bus = bus
-        self.queues: dict[int, Queue[can.Message]] = {}
+        self.queues = defaultdict[int, Queue[can.Message]](Queue)
         loop = get_running_loop()
         loop.add_reader(bus.fileno(), self._onreadable)
 
@@ -29,12 +30,8 @@ class Bus:
                 err_msg = "Unexpected None from bus.recv() in _onreadable"
                 raise RuntimeError(err_msg)
 
-            if msg.arbitration_id in self.queues:
-                self.queues[msg.arbitration_id].put_nowait(msg)
-            else:
-                queue = Queue[can.Message]()
-                queue.put_nowait(msg)
-                self.queues[msg.arbitration_id] = queue
+            # defaultdict automatically creates queue if it doesn't exist
+            self.queues[msg.arbitration_id].put_nowait(msg)
 
         except can.CanOperationError:
             loop = get_running_loop()
@@ -65,9 +62,5 @@ class Bus:
             The received CAN message.
 
         """
-        if arbitration_id in self.queues:
-            return self.queues[arbitration_id].get()
-
-        queue = Queue[can.Message]()
-        self.queues[arbitration_id] = queue
-        return queue.get()
+        # defaultdict automatically creates queue if it doesn't exist
+        return self.queues[arbitration_id].get()
