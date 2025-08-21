@@ -807,20 +807,24 @@ class Motor:
         encode_read_register(self._bus, self._slave_id, RegisterAddress.MST_ID)
         return decode_register_int(self._bus, self._master_id)
 
-    def set_master_id(self, value: int) -> Coroutine[Any, Any, int]:
-        """Set motor feedback ID (Master ID). Returns coroutine to be awaited.
+    async def set_master_id(self, value: int) -> int:
+        """Set motor feedback ID (Master ID) and update internal reference.
 
         Args:
             value: Master ID [0, 0x7FF]
 
         Returns:
-            Coroutine that yields int when awaited
+            The new master ID that was set
 
         """
         encode_write_register_int(
             self._bus, self._slave_id, RegisterAddress.MST_ID, value
         )
-        return decode_register_int(self._bus, self._master_id)
+        # Motor should respond on the NEW master ID after setting it
+        result = await decode_register_int(self._bus, value)
+        # Update our internal master_id to the new value
+        self._master_id = value
+        return result
 
     def get_slave_id(self) -> Coroutine[Any, Any, int]:
         """Get motor receive ID (Slave ID). Returns coroutine to be awaited.
@@ -834,20 +838,24 @@ class Motor:
         encode_read_register(self._bus, self._slave_id, RegisterAddress.ESC_ID)
         return decode_register_int(self._bus, self._master_id)
 
-    def set_slave_id(self, value: int) -> Coroutine[Any, Any, int]:
-        """Set motor receive ID (Slave ID). Returns coroutine to be awaited.
+    async def set_slave_id(self, value: int) -> int:
+        """Set motor receive ID (Slave ID) and update internal reference.
 
         Args:
             value: Slave ID [0, 0x7FF]
 
         Returns:
-            Coroutine that yields int when awaited
+            The new slave ID that was set
 
         """
         encode_write_register_int(
             self._bus, self._slave_id, RegisterAddress.ESC_ID, value
         )
-        return decode_register_int(self._bus, self._master_id)
+        # Motor responds on master_id to confirm the change
+        result = await decode_register_int(self._bus, self._master_id)
+        # Update our internal slave_id to the new value for future commands
+        self._slave_id = value
+        return result
 
     def get_timeout(self) -> Coroutine[Any, Any, int]:
         """Get motor timeout alarm time. Returns coroutine to be awaited.
