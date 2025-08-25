@@ -102,7 +102,7 @@ class AsyncBus:
 
         """
         self.bus = bus
-        self.queue: Queue[can.Message] = Queue()
+        self._queue: Queue[can.Message] = Queue()
         loop = get_running_loop()
         loop.add_reader(bus.fileno(), self._onreadable)
 
@@ -116,9 +116,10 @@ class AsyncBus:
                 raise RuntimeError(err_msg)
 
             # Put message in the single queue for all messages
-            self.queue.put_nowait(msg)
+            self._queue.put_nowait(msg)
 
         except can.CanOperationError:
+            self._queue.shutdown()
             loop = get_running_loop()
             loop.remove_reader(self.bus.fileno())
         except QueueFull:
@@ -142,4 +143,4 @@ class AsyncBus:
             The next received CAN message.
 
         """
-        return await self.queue.get()
+        return await self._queue.get()
