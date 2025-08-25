@@ -155,7 +155,7 @@ class Motor:
         """Get motor type."""
         return self._motor_type
 
-    def set_control_mode(self, mode: ControlMode) -> Coroutine[Any, Any, int]:
+    def set_control_mode(self, mode: ControlMode) -> Coroutine[Any, Any, ControlMode]:
         """Set motor control mode. Returns coroutine to be awaited.
 
         Args:
