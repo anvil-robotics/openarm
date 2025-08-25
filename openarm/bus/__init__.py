@@ -1,6 +1,6 @@
 """CAN bus message multiplexer for filtering messages by arbitration ID."""
 
-from asyncio import Queue, QueueFull, get_running_loop
+from asyncio import Queue, QueueFull, QueueShutDown, get_running_loop
 from collections import defaultdict
 from collections.abc import Coroutine
 from typing import Protocol
@@ -43,7 +43,8 @@ class AsyncBusMux:
 
         """
         self.bus = bus
-        self.queues = defaultdict[int, Queue[can.Message]](Queue)
+        self._queues = defaultdict[int, Queue[can.Message]](Queue)
+        self._shutdown = False
         loop = get_running_loop()
         loop.add_reader(bus.fileno(), self._onreadable)
 
@@ -56,9 +57,12 @@ class AsyncBusMux:
                 raise RuntimeError(err_msg)
 
             # defaultdict automatically creates queue if it doesn't exist
-            self.queues[msg.arbitration_id].put_nowait(msg)
+            self._queues[msg.arbitration_id].put_nowait(msg)
 
         except can.CanOperationError:
+            for queue in self._queues.values():
+                queue.shutdown()
+            self._shutdown = True
             loop = get_running_loop()
             loop.remove_reader(self.bus.fileno())
         except QueueFull:
@@ -87,8 +91,11 @@ class AsyncBusMux:
             The received CAN message.
 
         """
+        if self._shutdown:
+            raise QueueShutDown
+
         # defaultdict automatically creates queue if it doesn't exist
-        return self.queues[arbitration_id].get()
+        return self._queues[arbitration_id].get()
 
 
 class AsyncBus:
