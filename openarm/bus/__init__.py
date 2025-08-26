@@ -19,6 +19,10 @@ class AsyncBusProto(Protocol):
         """Receive a CAN message."""
         ...
 
+    def shutdown(self) -> None:
+        """Shutdown the bus and clean up resources."""
+        ...
+
 
 class AsyncBusMuxProto(Protocol):
     """Protocol for async CAN bus with multiplexing by arbitration ID."""
@@ -29,6 +33,10 @@ class AsyncBusMuxProto(Protocol):
 
     def recv(self, arbitration_id: int) -> Coroutine[any, any, can.Message]:
         """Receive a CAN message with specific arbitration ID."""
+        ...
+
+    def shutdown(self) -> None:
+        """Shutdown the bus and clean up resources."""
         ...
 
 
@@ -97,6 +105,14 @@ class AsyncBusMux:
         # defaultdict automatically creates queue if it doesn't exist
         return self._queues[arbitration_id].get()
 
+    def shutdown(self) -> None:
+        """Shutdown the bus multiplexer and clean up resources."""
+        for queue in self._queues.values():
+            queue.shutdown()
+        self._shutdown = True
+        loop = get_running_loop()
+        loop.remove_reader(self.bus.fileno())
+
 
 class AsyncBus:
     """Async CAN bus wrapper that receives all messages."""
@@ -151,3 +167,9 @@ class AsyncBus:
 
         """
         return await self._queue.get()
+
+    def shutdown(self) -> None:
+        """Shutdown the async bus and clean up resources."""
+        self._queue.shutdown()
+        loop = get_running_loop()
+        loop.remove_reader(self.bus.fileno())
