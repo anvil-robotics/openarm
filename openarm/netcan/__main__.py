@@ -8,7 +8,7 @@ import logging
 import signal
 from types import FrameType
 
-from can import Bus as CanBus
+import can
 
 from openarm.bus import AsyncBus
 
@@ -53,7 +53,7 @@ async def async_main() -> None:
     args = parser.parse_args()
 
     # Initialize CAN bus
-    can_bus = CanBus(interface=args.bus, channel=args.channel)
+    can_bus = can.Bus(interface=args.bus, channel=args.channel)
 
     # Wrap in openarm.bus.AsyncBus for async support
     bus = AsyncBus(can_bus)
