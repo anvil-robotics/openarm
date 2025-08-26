@@ -35,7 +35,6 @@ class AsyncSocketTransport:
         """
         self.reader = reader
         self.writer = writer
-        self.addr = writer.get_extra_info("peername")
 
     async def encode(self, message: Message) -> None:
         """Encode CAN message and send to client.
