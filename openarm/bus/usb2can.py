@@ -2,10 +2,9 @@
 
 import can
 import serial
-from can import BusABC, Message
 
 
-class USB2CAN(BusABC):
+class USB2CAN(can.BusABC):
     """USB2CAN adapter that implements the CAN BusABC interface."""
 
     FRAME_LENGTH = 30
@@ -47,7 +46,7 @@ class USB2CAN(BusABC):
         # Call parent constructor last as per BusABC documentation
         super().__init__(channel=channel, can_filters=can_filters, **kwargs)
 
-    def send(self, msg: Message, timeout: float | None = None) -> None:  # noqa: ARG002
+    def send(self, msg: can.Message, timeout: float | None = None) -> None:  # noqa: ARG002
         """Send a CAN message via USB2CAN.
 
         Args:
@@ -62,7 +61,7 @@ class USB2CAN(BusABC):
         frame = self._build_frame(msg)
         self.serial_port.write(frame)
 
-    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
+    def _recv_internal(self, timeout: float | None) -> tuple[can.Message | None, bool]:
         """Read a message from the bus and tell whether it was filtered.
 
         This is the preferred method to override instead of recv() according to BusABC.
@@ -123,7 +122,7 @@ class USB2CAN(BusABC):
             raise can.CanError(msg_text)
         return self.serial_port.fileno()
 
-    def _build_frame(self, msg: Message) -> bytes:
+    def _build_frame(self, msg: can.Message) -> bytes:
         """Build USB2CAN frame from CAN message.
 
         Args:
@@ -204,7 +203,7 @@ class USB2CAN(BusABC):
 
         return None
 
-    def _parse_packet(self, packet: bytes) -> Message | None:
+    def _parse_packet(self, packet: bytes) -> can.Message | None:
         """Parse USB2CAN packet into CAN message.
 
         Args:
@@ -241,4 +240,4 @@ class USB2CAN(BusABC):
         # Extract data
         data = bytes(packet[21 : 21 + data_len])
 
-        return Message(arbitration_id=can_id, data=data, is_extended_id=is_extended)
+        return can.Message(arbitration_id=can_id, data=data, is_extended_id=is_extended)
