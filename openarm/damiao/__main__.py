@@ -86,13 +86,10 @@ async def _enable(args: argparse.Namespace) -> None:
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
     )
 
-    response = await motor.enable()
+    state = await motor.enable()
 
-    if response.success:
-        _output(f"Motor {args.slave_id} enabled successfully")
-    else:
-        _error(f"Failed to enable motor {args.slave_id}")
-        sys.exit(1)
+    _output(f"Motor {args.slave_id} enabled successfully")
+    _output(_format_motor_state(state, args.slave_id))
 
 
 async def _disable(args: argparse.Namespace) -> None:
@@ -103,13 +100,10 @@ async def _disable(args: argparse.Namespace) -> None:
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
     )
 
-    response = await motor.disable()
+    state = await motor.disable()
 
-    if response.success:
-        _output(f"Motor {args.slave_id} disabled successfully")
-    else:
-        _error(f"Failed to disable motor {args.slave_id}")
-        sys.exit(1)
+    _output(f"Motor {args.slave_id} disabled successfully")
+    _output(_format_motor_state(state, args.slave_id))
 
 
 async def _set_zero(args: argparse.Namespace) -> None:
@@ -120,13 +114,10 @@ async def _set_zero(args: argparse.Namespace) -> None:
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
     )
 
-    response = await motor.set_zero_position()
+    state = await motor.set_zero_position()
 
-    if response.success:
-        _output(f"Zero position set for motor {args.slave_id}")
-    else:
-        _error(f"Failed to set zero position for motor {args.slave_id}")
-        sys.exit(1)
+    _output(f"Zero position set for motor {args.slave_id}")
+    _output(_format_motor_state(state, args.slave_id))
 
 
 async def _refresh(args: argparse.Namespace) -> None:
@@ -238,7 +229,7 @@ async def _save_parameters(args: argparse.Namespace) -> None:
     response = await motor.save_parameters()
 
     if response.success:
-        _output(f"Parameters saved for motor {args.slave_id}")
+        _output(f"Parameters saved successfully for motor {args.slave_id}")
     else:
         _error(f"Failed to save parameters for motor {args.slave_id}")
         sys.exit(1)

@@ -154,29 +154,29 @@ class MitControlParams:
 
 
 @dataclass
-class AckResponse:
-    """Simple acknowledgment response data from Damiao motor.
-
-    Reference: DM_CAN.py save_motor_param and other simple operations
-    """
-
-    slave_id: int  # Motor slave ID that responded
-    command: int  # Command code that was executed
-    success: bool  # Whether the operation was successful
-
-
-@dataclass
 class MotorState:
     """Motor state response data from Damiao motor.
 
     Reference: DM_CAN.py MotorState structure and recv_data function
     """
 
+    slave_id: int  # Motor slave ID that responded
     position: float  # Motor position in radians
     velocity: float  # Motor velocity in radians/second
     torque: float  # Motor torque in Nm
     temp_mos: int  # MOS temperature
     temp_rotor: int  # Rotor temperature
+
+
+@dataclass
+class SaveResponse:
+    """Save parameters response data from Damiao motor.
+
+    Reference: Save parameters response format - custom protocol
+    """
+
+    slave_id: int  # Motor slave ID that responded
+    success: bool  # Whether the save operation was successful
 
 
 @dataclass
@@ -338,9 +338,9 @@ async def decode_motor_state(
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
-    # Format: '<BHHBB' = little-endian: state_code(B) + packed_data(2*H) + temps(2*B)
+    # Format: '<BHHBB' = little-endian: slave_id(B) + packed_data(2*H) + temps(2*B)
     # Reference: Motor state format in DM_CAN.py __process_packet CMD==0x11 handling
-    _, word1, word2, t_mos, t_rotor = struct.unpack("<BHHBB", message.data[:7])
+    slave_id, word1, word2, t_mos, t_rotor = struct.unpack("<BHHBB", message.data[:7])
 
     # Extract packed motor state values using bit operations
     # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
@@ -363,11 +363,43 @@ async def decode_motor_state(
     torque = _uint_to_float(tau_uint, -tau_max, tau_max, 12)
 
     return MotorState(
+        slave_id=slave_id,
         position=position,
         velocity=velocity,
         torque=torque,
         temp_mos=t_mos,
         temp_rotor=t_rotor,
+    )
+
+
+async def decode_save_response(bus: Bus, master_id: int) -> SaveResponse:
+    """Decode save parameters response. Waits for save confirmation.
+
+    Args:
+        bus: CAN bus instance for message reception
+        master_id: Motor master ID to wait for response from
+
+    Returns:
+        SaveResponse: Save response dataclass with slave_id and success status
+
+    Reference: Save parameters response format - custom protocol
+
+    """
+    # Wait for save response with motor's master ID
+    # Timeout to prevent indefinite blocking
+    message = bus.recv(master_id, timeout=0.1)
+
+    # Unpack save response data
+    # Format: '<HBB...' = little-endian: slave_id(H=uint16) + command(B) + status(B) + padding
+    # First 2 bytes are slave_id, byte 3 is command (0xAA), byte 4 is status (0x01 for success)
+    slave_id, command, status = struct.unpack("<HBB", message.data[:4])
+    
+    # Check if this is a valid save response (0xAA command) and if it succeeded (0x01 status)
+    success = command == 0xAA and status == 0x01
+
+    return SaveResponse(
+        slave_id=slave_id,
+        success=success,
     )
 
 
@@ -479,7 +511,7 @@ def encode_save_parameters(bus: Bus, slave_id: int) -> None:
         bus: CAN bus instance for message transmission
         slave_id: Motor slave ID
 
-    Decode with: decode_acknowledgment(bus)
+    Decode with: decode_save_response(bus, master_id)
 
     Reference: DM_CAN.py save_motor_param function lines 420-431
 
@@ -534,37 +566,6 @@ def encode_refresh_status(bus: Bus, slave_id: int) -> None:
     # Reference: DM_CAN.py __send_data calls with 0x7FF for refresh operations
     message = can.Message(arbitration_id=0x7FF, data=data, is_extended_id=False)
     bus.send(message)
-
-
-async def decode_acknowledgment(bus: Bus, master_id: int) -> AckResponse:
-    """Decode simple acknowledgment response. Waits for operation confirmation.
-
-    Args:
-        bus: CAN bus instance for message reception
-        master_id: Motor master ID to wait for response from
-
-    Returns:
-        AckResponse: Simple acknowledgment dataclass with slave_id, command, and success
-
-    Reference: DM_CAN.py simple operations like save_motor_param
-
-    """
-    # Wait for acknowledgment response with master arbitration ID
-    # Timeout to prevent indefinite blocking
-    # Reference: Simple operation handling - no specific response format documented
-    message = bus.recv(master_id, timeout=0.1)
-
-    # Unpack acknowledgment response data according to basic protocol format
-    # Format: '<HBBBBBB' = little-endian: slave_id(H=uint16) + response_data(6*B)
-    # Reference: Basic response format similar to register responses
-    unpacked_ack = struct.unpack("<HBBBBBB", message.data)
-    slave_id, command_code, status = unpacked_ack[:3]
-
-    return AckResponse(
-        slave_id=slave_id,
-        command=command_code,
-        success=(status == 0x00),  # Assume 0x00 means success
-    )
 
 
 def encode_control_pos_vel(
@@ -666,7 +667,7 @@ def encode_enable_motor(bus: Bus, slave_id: int) -> None:
         bus: CAN bus instance for message transmission
         slave_id: Motor slave ID
 
-    Decode with: decode_acknowledgment(bus)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py enable function lines 188-195
 
@@ -689,7 +690,7 @@ def encode_disable_motor(bus: Bus, slave_id: int) -> None:
         bus: CAN bus instance for message transmission
         slave_id: Motor slave ID
 
-    Decode with: decode_acknowledgment(bus)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py disable function lines 209-215
 
@@ -712,7 +713,7 @@ def encode_set_zero_position(bus: Bus, slave_id: int) -> None:
         bus: CAN bus instance for message transmission
         slave_id: Motor slave ID
 
-    Decode with: decode_acknowledgment(bus)
+    Decode with: decode_motor_state(bus, master_id, motor_limits)
 
     Reference: DM_CAN.py set_zero_position function lines 217-223
 

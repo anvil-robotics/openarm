@@ -14,7 +14,6 @@ from typing import Any, Literal
 from openarm.bus import Bus
 
 from .encoding import (
-    AckResponse,
     ControlMode,
     MitControlParams,
     MotorLimits,
@@ -22,11 +21,12 @@ from .encoding import (
     PosForceControlParams,
     PosVelControlParams,
     RegisterAddress,
+    SaveResponse,
     VelControlParams,
-    decode_acknowledgment,
     decode_motor_state,
     decode_register_float,
     decode_register_int,
+    decode_save_response,
     encode_control_mit,
     encode_control_pos_vel,
     encode_control_torque_pos,
@@ -251,11 +251,11 @@ class Motor:
         # Return coroutine from asynchronous decode function
         return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
-    def enable(self) -> Coroutine[Any, Any, AckResponse]:
+    def enable(self) -> Coroutine[Any, Any, MotorState]:
         """Enable motor. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields AckResponse when awaited
+            Coroutine that yields MotorState when awaited
 
         Reference: README.md Motor class method pattern lines 334-340
 
@@ -264,13 +264,13 @@ class Motor:
         encode_enable_motor(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self._bus, self._master_id)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
-    def disable(self) -> Coroutine[Any, Any, AckResponse]:
+    def disable(self) -> Coroutine[Any, Any, MotorState]:
         """Disable motor. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields AckResponse when awaited
+            Coroutine that yields MotorState when awaited
 
         Reference: README.md Motor class method pattern lines 334-340
 
@@ -279,13 +279,13 @@ class Motor:
         encode_disable_motor(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self._bus, self._master_id)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
-    def set_zero_position(self) -> Coroutine[Any, Any, AckResponse]:
+    def set_zero_position(self) -> Coroutine[Any, Any, MotorState]:
         """Set motor zero position. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields AckResponse when awaited
+            Coroutine that yields MotorState when awaited
 
         Reference: README.md Motor class method pattern lines 334-340
 
@@ -294,7 +294,7 @@ class Motor:
         encode_set_zero_position(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self._bus, self._master_id)
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
     # Voltage Protection Parameters
     def get_under_voltage(self) -> Coroutine[Any, Any, float]:
@@ -1217,11 +1217,11 @@ class Motor:
         encode_read_register(self._bus, self._slave_id, RegisterAddress.XOUT)
         return decode_register_float(self._bus, self._master_id)
 
-    def save_parameters(self) -> Coroutine[Any, Any, AckResponse]:
+    def save_parameters(self) -> Coroutine[Any, Any, SaveResponse]:
         """Save motor parameters to flash. Returns coroutine to be awaited.
 
         Returns:
-            Coroutine that yields AckResponse when awaited
+            Coroutine that yields SaveResponse when awaited
 
         Reference: README.md Motor class method pattern lines 334-340
 
@@ -1230,7 +1230,7 @@ class Motor:
         encode_save_parameters(self._bus, self._slave_id)
 
         # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self._bus, self._master_id)
+        return decode_save_response(self._bus, self._master_id)
 
     def refresh_status(self) -> Coroutine[Any, Any, MotorState]:
         """Refresh motor status. Returns coroutine to be awaited.
@@ -1250,7 +1250,6 @@ class Motor:
 
 __all__ = [
     "MOTOR_LIMITS",
-    "AckResponse",
     "ControlMode",
     "MitControlParams",
     "Motor",
@@ -1260,5 +1259,6 @@ __all__ = [
     "PosForceControlParams",
     "PosVelControlParams",
     "RegisterAddress",
+    "SaveResponse",
     "VelControlParams",
 ]

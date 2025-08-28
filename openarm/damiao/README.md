@@ -100,8 +100,8 @@ When multiple commands return identical or very similar response formats, use ge
 
 **Common Generic Decoder Types:**
 
-- `decode_motor_state` - For commands returning position/velocity/torque data
-- `decode_acknowledgment` - For commands returning simple success/error status
+- `decode_motor_state` - For commands returning position/velocity/torque data (includes slave_id)
+- `decode_save_response` - For save parameters command returning slave_id and success status
 - `decode_register_value` - For register read operations returning data values
 - `decode_command_response` - For standard command confirmations
 
@@ -126,18 +126,22 @@ Each command typically has a corresponding encode/decode pair with matching name
 
 **Control Commands:**
 
-- `encode_enable_motor` / `decode_enable_motor`
-- `encode_disable_motor` / `decode_disable_motor`
-- `encode_reset_motor` / `decode_reset_motor`
+- `encode_enable_motor` / `decode_motor_state`
+- `encode_disable_motor` / `decode_motor_state`
+- `encode_set_zero_position` / `decode_motor_state`
+- `encode_save_parameters` / `decode_save_response`
+- `encode_refresh_status` / `decode_motor_state`
 
 **Generic Decoders (When Multiple Commands Share Response Format):**
 Only use generic decoders when you identify that multiple commands return identical response formats:
 
-**Example - Simple Acknowledgments:**
+**Example - Motor State Responses:**
 
-- `encode_enable_motor` / `decode_acknowledgment`
-- `encode_disable_motor` / `decode_acknowledgment`
-- `encode_reset_motor` / `decode_acknowledgment`
+- `encode_enable_motor` / `decode_motor_state`
+- `encode_disable_motor` / `decode_motor_state`
+- `encode_set_zero_position` / `decode_motor_state`
+- `encode_control_mit` / `decode_motor_state`
+- `encode_control_pos_vel` / `decode_motor_state`
 
 **Example - Register Operations:**
 
@@ -148,7 +152,7 @@ Only use generic decoders when you identify that multiple commands return identi
 
 - **Default pairing**: `encode_X` pairs with `decode_X` for most commands
 - **Generic decoders only when needed**: Use generic decoders only when multiple commands return identical response formats
-- **Generic decoder naming**: Use descriptive names like `decode_acknowledgment`, `decode_register_value`
+- **Generic decoder naming**: Use descriptive names like `decode_motor_state`, `decode_register_value`
 - **Encode is synchronous**: Immediate sending, no async/await
 - **Decode is asynchronous**: Waiting for response requires async/await
 - **Clear responsibility**: Encode handles sending, decode handles receiving
