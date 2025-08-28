@@ -726,4 +726,3 @@ def encode_set_zero_position(bus: Bus, slave_id: int) -> None:
     # Reference: DM_CAN.py __control_cmd usage in set_zero_position function line 221
     message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
-

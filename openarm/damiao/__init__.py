@@ -266,7 +266,6 @@ class Motor:
         # Return coroutine from asynchronous decode function
         return decode_acknowledgment(self._bus, self._master_id)
 
-
     def disable(self) -> Coroutine[Any, Any, AckResponse]:
         """Disable motor. Returns coroutine to be awaited.
 
