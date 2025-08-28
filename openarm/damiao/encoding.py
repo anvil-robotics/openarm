@@ -390,12 +390,14 @@ async def decode_save_response(bus: Bus, master_id: int) -> SaveResponse:
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack save response data
-    # Format: '<HBB...' = little-endian: slave_id(H=uint16) + command(B) + status(B) + padding
-    # First 2 bytes are slave_id, byte 3 is command (0xAA), byte 4 is status (0x01 for success)
+    # Format: '<HBB' = little-endian: slave_id(H) + command(B) + status(B)
+    # slave_id: first 2 bytes, command: byte 3 (0xAA), status: byte 4 (0x01=success)
     slave_id, command, status = struct.unpack("<HBB", message.data[:4])
-    
-    # Check if this is a valid save response (0xAA command) and if it succeeded (0x01 status)
-    success = command == 0xAA and status == 0x01
+
+    # Check if valid save response (0xAA cmd) and if it succeeded (0x01 status)
+    save_cmd = 0xAA  # Save command identifier
+    success_status = 0x01  # Success status code
+    success = command == save_cmd and status == success_status
 
     return SaveResponse(
         slave_id=slave_id,
