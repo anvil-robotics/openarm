@@ -36,7 +36,6 @@ from typing import Any
 from openarm.bus import Bus
 
 from . import (
-    ControlMode,
     MitControlParams,
     Motor,
     MotorState,
@@ -87,11 +86,7 @@ async def _enable(args: argparse.Namespace) -> None:
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
     )
 
-    if args.legacy:
-        control_mode = ControlMode(args.control_mode)
-        response = await motor.enable_legacy(control_mode)
-    else:
-        response = await motor.enable()
+    response = await motor.enable()
 
     if response.success:
         _output(f"Motor {args.slave_id} enabled successfully")
@@ -426,15 +421,6 @@ def _main() -> None:
     enable_parser = subparsers.add_parser("enable", help="Enable motor")
     add_common_args(enable_parser)
     add_motor_type_arg(enable_parser)
-    enable_parser.add_argument(
-        "--legacy", action="store_true", help="Use legacy enable for old firmware"
-    )
-    enable_parser.add_argument(
-        "--control-mode",
-        type=int,
-        default=1,
-        help="Control mode for legacy enable (1=MIT, 2=POS_VEL, 3=VEL, 4=TORQUE_POS)",
-    )
     enable_parser.set_defaults(func=_enable)
 
     # Disable command

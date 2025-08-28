@@ -33,7 +33,6 @@ from .encoding import (
     encode_control_vel,
     encode_disable_motor,
     encode_enable_motor,
-    encode_enable_motor_legacy,
     encode_read_register,
     encode_refresh_status,
     encode_save_parameters,
@@ -267,25 +266,6 @@ class Motor:
         # Return coroutine from asynchronous decode function
         return decode_acknowledgment(self._bus, self._master_id)
 
-    def enable_legacy(
-        self, control_mode: ControlMode
-    ) -> Coroutine[Any, Any, AckResponse]:
-        """Enable motor with legacy firmware. Returns coroutine to be awaited.
-
-        Args:
-            control_mode: Control mode for legacy enable calculation
-
-        Returns:
-            Coroutine that yields AckResponse when awaited
-
-        Reference: README.md Motor class method pattern lines 334-340
-
-        """
-        # Encode legacy enable command and send request
-        encode_enable_motor_legacy(self._bus, self._slave_id, control_mode)
-
-        # Return coroutine from asynchronous decode function
-        return decode_acknowledgment(self._bus, self._master_id)
 
     def disable(self) -> Coroutine[Any, Any, AckResponse]:
         """Disable motor. Returns coroutine to be awaited.

@@ -727,32 +727,3 @@ def encode_set_zero_position(bus: Bus, slave_id: int) -> None:
     message = can.Message(arbitration_id=slave_id, data=data, is_extended_id=False)
     bus.send(message)
 
-
-def encode_enable_motor_legacy(
-    bus: Bus, slave_id: int, control_mode: ControlMode
-) -> None:
-    """Enable motor with legacy firmware. Sends CAN message for old firmware compat.
-
-    Args:
-        bus: CAN bus instance for message transmission
-        slave_id: Motor slave ID
-        control_mode: Control mode for legacy enable calculation
-
-    Decode with: decode_acknowledgment(bus)
-
-    Reference: DM_CAN.py enable_old function lines 197-207
-
-    """
-    # Pack legacy enable command with 0xFC command code
-    # Format: '<BBBBBBBB' = 8 bytes with 0xFF padding + 0xFC command
-    # Reference: Legacy enable command format in DM_CAN.py enable_old lines 203-204
-    data = struct.pack("<BBBBBBBB", 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC)
-
-    # Calculate legacy enable ID with control mode offset for old firmware
-    # Reference: DM_CAN.py enable_old ID calculation line 204
-    enable_id = ((int(control_mode) - 1) << 2) + slave_id
-
-    # Send to calculated enable ID for legacy firmware compatibility
-    # Reference: DM_CAN.py enable_old __send_data call line 205
-    message = can.Message(arbitration_id=enable_id, data=data, is_extended_id=False)
-    bus.send(message)
