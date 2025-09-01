@@ -1,12 +1,46 @@
 """CAN bus message multiplexer for filtering messages by arbitration ID."""
 
-from time import time
+from asyncio import Queue, QueueFull, QueueShutDown, get_running_loop
+from collections import defaultdict
+from typing import Protocol
 
 import can
 
 
-class Bus:
-    """CAN bus wrapper."""
+class AsyncBusProto(Protocol):
+    """Protocol for async CAN bus."""
+
+    async def send(self, msg: can.Message) -> None:
+        """Send a CAN message."""
+        ...
+
+    async def recv(self) -> can.Message:
+        """Receive a CAN message."""
+        ...
+
+    def shutdown(self) -> None:
+        """Shutdown the bus and clean up resources."""
+        ...
+
+
+class AsyncBusMuxProto(Protocol):
+    """Protocol for async CAN bus with multiplexing by arbitration ID."""
+
+    async def send(self, msg: can.Message) -> None:
+        """Send a CAN message."""
+        ...
+
+    async def recv(self, arbitration_id: int) -> can.Message:
+        """Receive a CAN message with specific arbitration ID."""
+        ...
+
+    def shutdown(self) -> None:
+        """Shutdown the bus and clean up resources."""
+        ...
+
+
+class AsyncBusMux:
+    """CAN bus wrapper with multiplexing by arbitration ID."""
 
     def __init__(self, bus: can.BusABC) -> None:
         """Initialize the bus multiplexer.
@@ -16,58 +50,123 @@ class Bus:
 
         """
         self.bus = bus
-        self.lookup: dict[int, list[can.Message]] = {}
+        self._queues = defaultdict[int, Queue[can.Message]](Queue)
+        self._shutdown = False
+        loop = get_running_loop()
+        loop.add_reader(bus.fileno(), self._onreadable)
 
-    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+    def _onreadable(self) -> None:
+        try:
+            msg = self.bus.recv()
+            if msg is None:
+                # This shouldn't happen when called by the event loop
+                err_msg = "Unexpected None from bus.recv() in _onreadable"
+                raise RuntimeError(err_msg)
+
+            # defaultdict automatically creates queue if it doesn't exist
+            self._queues[msg.arbitration_id].put_nowait(msg)
+
+        except can.CanOperationError:
+            for queue in self._queues.values():
+                queue.shutdown()
+            self._shutdown = True
+            loop = get_running_loop()
+            loop.remove_reader(self.bus.fileno())
+        except QueueFull:
+            # drop message
+            pass
+
+    async def send(self, msg: can.Message) -> None:
         """Send a CAN message.
 
         Args:
             msg: The CAN message to send.
-            timeout: Optional send timeout in seconds.
 
         """
-        self.bus.send(msg, timeout)
+        self.bus.send(msg)
 
-    def recv(
-        self, arbitration_id: int, timeout: float | None = None
-    ) -> can.Message | None:
+    async def recv(self, arbitration_id: int) -> can.Message:
         """Receive a CAN message with the specified arbitration ID.
 
-        Messages with other arbitration IDs are queued for later retrieval.
+        Messages with other arbitration IDs are queued separately.
 
         Args:
             arbitration_id: The arbitration ID to filter for.
-            timeout: Optional receive timeout in seconds. None means wait indefinitely.
 
         Returns:
-            The received CAN message, or None if timeout occurred.
+            The received CAN message.
 
         """
-        queue = self.lookup[arbitration_id]
-        if queue and len(queue) > 0:
-            return queue.pop(0)
+        if self._shutdown:
+            raise QueueShutDown
 
-        if timeout is None:
-            while True:
-                msg = self.bus.recv()
-                if msg.arbitration_id == arbitration_id:
-                    return msg
-                queue = self.lookup[msg.arbitration_id]
-                if queue:
-                    queue.append(msg)
-                else:
-                    self.lookup[msg.arbitration_id] = [msg]
-        else:
-            end = time() + timeout
-            while timeout > 0:
-                msg = self.bus.recv(timeout)
-                if msg.arbitration_id == arbitration_id:
-                    return msg
-                queue = self.lookup[msg.arbitration_id]
-                if queue:
-                    queue.append(msg)
-                else:
-                    self.lookup[msg.arbitration_id] = [msg]
-                timeout = end - time()
+        # defaultdict automatically creates queue if it doesn't exist
+        return await self._queues[arbitration_id].get()
 
-        return None
+    def shutdown(self) -> None:
+        """Shutdown the bus multiplexer and clean up resources."""
+        for queue in self._queues.values():
+            queue.shutdown()
+        self._shutdown = True
+        loop = get_running_loop()
+        loop.remove_reader(self.bus.fileno())
+
+
+class AsyncBus:
+    """Async CAN bus wrapper that receives all messages."""
+
+    def __init__(self, bus: can.BusABC) -> None:
+        """Initialize the broadcast bus.
+
+        Args:
+            bus: The underlying CAN bus interface.
+
+        """
+        self.bus = bus
+        self._queue: Queue[can.Message] = Queue()
+        loop = get_running_loop()
+        loop.add_reader(bus.fileno(), self._onreadable)
+
+    def _onreadable(self) -> None:
+        """Handle readable event from the CAN bus."""
+        try:
+            msg = self.bus.recv()
+            if msg is None:
+                # This shouldn't happen when called by the event loop
+                err_msg = "Unexpected None from bus.recv() in _onreadable"
+                raise RuntimeError(err_msg)
+
+            # Put message in the single queue for all messages
+            self._queue.put_nowait(msg)
+
+        except can.CanOperationError:
+            self._queue.shutdown()
+            loop = get_running_loop()
+            loop.remove_reader(self.bus.fileno())
+        except QueueFull:
+            # drop message if queue is full
+            pass
+
+    async def send(self, msg: can.Message) -> None:
+        """Send a CAN message.
+
+        Args:
+            msg: The CAN message to send.
+
+        """
+        self.bus.send(msg)
+
+    async def recv(self) -> can.Message:
+        """Receive the next CAN message regardless of arbitration ID.
+
+        Returns:
+            The next received CAN message.
+
+        """
+        return await self._queue.get()
+
+    def shutdown(self) -> None:
+        """Shutdown the async bus and clean up resources."""
+        self._queue.shutdown()
+        loop = get_running_loop()
+        loop.remove_reader(self.bus.fileno())
