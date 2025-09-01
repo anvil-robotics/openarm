@@ -313,7 +313,7 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     value = await param_methods[param_name]()
-    
+
     # Handle special display formatting
     if param_name == "control_mode":
         # Convert ControlMode enum value to name
