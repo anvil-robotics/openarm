@@ -1,231 +1,526 @@
 """Command-line interface for controlling Damiao motors over CAN.
 
-This module provides a CLI to send enable or disable commands to
-Damiao motors via a SocketCAN interface.
+This module provides a CLI to control Damiao motors via CAN bus communication.
+Uses the high-level Motor class and encode/decode functions for proper async handling.
 
 Commands:
-    enable   Enable the specified motor.
-    disable  Disable the specified motor.
+    enable           Enable the specified motor
+    disable          Disable the specified motor
+    set-zero         Set motor zero position
+    refresh          Get current motor status
+    control          Control motor in various modes (MIT, pos_vel, vel, pos_force)
+    param            Get/set semantic motor parameters
+    save             Save motor parameters to flash
 
 Examples:
-    python -m openarm.damiao enable --iface can0 1
-    python -m openarm.damiao disable 2
+    # When slave_id and master_id are the same:
+    python -m openarm.damiao enable --iface can0 --motor-type DM4310 1 1
+    python -m openarm.damiao control mit --iface can0 --motor-type DM4310 1 1 \
+        50 0.3 0 0 0
+    python -m openarm.damiao param get --iface can0 --motor-type DM4310 1 1 \
+        over_voltage
+    python -m openarm.damiao param set --iface can0 --motor-type DM4310 1 1 \
+        max_speed 10.0
+
+    # When slave_id and master_id are different:
+    python -m openarm.damiao enable --iface can0 --motor-type DM4310 1 2
 
 """
 
 import argparse
+import asyncio
 import sys
+from collections.abc import Coroutine
+from typing import Any
 
-import can
+from openarm.bus import Bus
 
 from . import (
+    ControlMode,
+    MitControlParams,
+    Motor,
+    MotorState,
     MotorType,
-    RegisterResponse,
-    StateResponse,
-    control_mit_command,
-    control_pos_force_command,
-    control_pos_vel_command,
-    control_vel_command,
-    decode_response,
-    disable_command,
-    enable_command,
-    read_register_command,
-    refresh_command,
-    set_zero_command,
-    write_register_command,
+    PosForceControlParams,
+    PosVelControlParams,
+    VelControlParams,
 )
 
 
-def _enable(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(enable_command(args.slave_id))
+# Output utilities for CLI
+def _output(message: str) -> None:
+    """Output message to stdout."""
+    print(message)  # noqa: T201
 
 
-def _disable(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(disable_command(args.slave_id))
+def _error(message: str) -> None:
+    """Output error message to stderr."""
+    print(message, file=sys.stderr)  # noqa: T201
 
 
-def _set_zero(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(set_zero_command(args.slave_id))
+def _format_motor_state(state: MotorState, slave_id: int) -> str:
+    """Format motor state for display."""
+    lines = [
+        f"Motor {slave_id} state:",
+        f"  Position: {state.position:.6f} rad",
+        f"  Velocity: {state.velocity:.6f} rad/s",
+        f"  Torque: {state.torque:.6f} Nm",
+        f"  MOS Temp: {state.temp_mos}°C",
+        f"  Rotor Temp: {state.temp_rotor}°C",
+    ]
+    return "\n".join(lines)
 
 
-def _refresh(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(refresh_command(args.slave_id))
-        for msg in bus:
-            res = decode_response(msg)
-            if isinstance(res, StateResponse) and res.master_id == args.master_id:
-                if args.motor_type is not None:
-                    res = res.as_motor(MotorType(args.motor_type))
+def _create_bus(iface: str) -> Bus:
+    """Create CAN bus instance with SocketCAN interface."""
+    import can  # noqa: PLC0415
 
-                sys.stdout.write(f"q: {res.q}\n")
-                sys.stdout.write(f"dq: {res.dq}\n")
-                sys.stdout.write(f"tau: {res.tau}\n")
-                sys.stdout.write(f"t mos: {res.t_mos}\n")
-                sys.stdout.write(f"t rotor: {res.t_rotor}\n")
-                return
+    can_bus = can.Bus(channel=iface, interface="socketcan")
+    return Bus(can_bus)
 
 
-def _control_mit(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(
-            control_mit_command(
-                MotorType(args.motor_type),
-                args.slave_id,
-                args.kp,
-                args.kd,
-                args.q,
-                args.dq,
-                args.tau,
-            )
-        )
+async def _enable(args: argparse.Namespace) -> None:
+    """Enable motor using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    state = await motor.enable()
+
+    _output(f"Motor {args.slave_id} enabled successfully")
+    _output(_format_motor_state(state, args.slave_id))
 
 
-def _control_pos_vel(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(control_pos_vel_command(args.slave_id, args.pos, args.vel))
+async def _disable(args: argparse.Namespace) -> None:
+    """Disable motor using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    state = await motor.disable()
+
+    _output(f"Motor {args.slave_id} disabled successfully")
+    _output(_format_motor_state(state, args.slave_id))
 
 
-def _control_vel(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(control_vel_command(args.slave_id, args.vel))
+async def _set_zero(args: argparse.Namespace) -> None:
+    """Set motor zero position using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    state = await motor.set_zero_position()
+
+    _output(f"Zero position set for motor {args.slave_id}")
+    _output(_format_motor_state(state, args.slave_id))
 
 
-def _control_pos_force(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(
-            control_pos_force_command(args.slave_id, args.pos, args.vel, args.i_norm)
-        )
+async def _refresh(args: argparse.Namespace) -> None:
+    """Refresh motor status using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    state = await motor.refresh_status()
+    _output(_format_motor_state(state, args.slave_id))
 
 
-def _register_read(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(read_register_command(args.slave_id, args.address))
-        for msg in bus:
-            res = decode_response(msg)
-            if isinstance(res, RegisterResponse) and res.slave_id == args.slave_id:
-                value = res.as_float() if args.as_float else res.as_int()
-                sys.stdout.write(f"{value}\n")
-                return
+async def _control_mit(args: argparse.Namespace) -> None:
+    """Control motor in MIT mode using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    params = MitControlParams(
+        kp=args.kp,
+        kd=args.kd,
+        q=args.q,
+        dq=args.dq,
+        tau=args.tau,
+    )
+
+    state = await motor.control_mit(params)
+
+    _output(f"MIT control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
+    )
 
 
-def _register_write(args: argparse.Namespace) -> None:
-    with can.Bus(channel=args.iface, interface="socketcan") as bus:
-        bus.send(
-            write_register_command(
-                args.slave_id, args.address, args.value, as_float=args.as_float
-            )
-        )
+async def _control_pos_vel(args: argparse.Namespace) -> None:
+    """Control motor in position/velocity mode using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
 
-        for msg in bus:
-            res = decode_response(msg)
-            if isinstance(res, RegisterResponse) and res.slave_id == args.slave_id:
-                value = res.as_float() if args.as_float else res.as_int()
-                sys.stdout.write(f"{value}\n")
-                return
+    params = PosVelControlParams(position=args.pos, velocity=args.vel)
+    state = await motor.control_pos_vel(params)
+
+    _output(f"Position/velocity control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
+    )
+
+
+async def _control_vel(args: argparse.Namespace) -> None:
+    """Control motor in velocity mode using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    params = VelControlParams(velocity=args.vel)
+    state = await motor.control_vel(params)
+
+    _output(f"Velocity control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
+    )
+
+
+async def _control_pos_force(args: argparse.Namespace) -> None:
+    """Control motor in position/force mode using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    params = PosForceControlParams(
+        position=args.pos, velocity=args.vel, current_norm=args.i_norm
+    )
+
+    state = await motor.control_pos_force(params)
+
+    _output(f"Position/force control sent to motor {args.slave_id}")
+    _output(
+        f"Response - Position: {state.position:.6f}, "
+        f"Velocity: {state.velocity:.6f}, "
+        f"Torque: {state.torque:.6f}"
+    )
+
+
+async def _save_parameters(args: argparse.Namespace) -> None:
+    """Save motor parameters to flash using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    response = await motor.save_parameters()
+
+    if response.success:
+        _output(f"Parameters saved successfully for motor {args.slave_id}")
+    else:
+        _error(f"Failed to save parameters for motor {args.slave_id}")
+        sys.exit(1)
+
+
+# High-level Motor class interface functions
+async def _motor_get_param(args: argparse.Namespace) -> None:
+    """Get semantic motor parameter using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    param_name = args.parameter
+
+    # Map parameter names to Motor class methods
+    param_methods = {
+        # Control Mode
+        "control_mode": motor.get_control_mode,
+        # Voltage Protection
+        "under_voltage": motor.get_under_voltage,
+        "over_voltage": motor.get_over_voltage,
+        # Motor Characteristics
+        "torque_coefficient": motor.get_torque_coefficient,
+        "gear_efficiency": motor.get_gear_efficiency,
+        # Protection Limits
+        "over_temperature": motor.get_over_temperature,
+        "over_current": motor.get_over_current,
+        # Mapping Limits
+        "position_limit": motor.get_position_limit,
+        "velocity_limit": motor.get_velocity_limit,
+        "torque_limit": motor.get_torque_limit,
+        # Control Loop Parameters
+        "velocity_kp": motor.get_velocity_kp,
+        "velocity_ki": motor.get_velocity_ki,
+        "position_kp": motor.get_position_kp,
+        "position_ki": motor.get_position_ki,
+        # Current and Speed Loop Parameters (NEW)
+        "current_loop_bandwidth": motor.get_current_loop_bandwidth,
+        "speed_loop_damping": motor.get_speed_loop_damping,
+        "speed_loop_filter_bandwidth": motor.get_speed_loop_filter_bandwidth,
+        "current_loop_gain": motor.get_current_loop_gain,
+        "speed_loop_gain": motor.get_speed_loop_gain,
+        # Read-Only Motor Information
+        "hardware_version": motor.get_hardware_version,
+        "software_version": motor.get_software_version,
+        "serial_number": motor.get_serial_number,
+        "gear_ratio": motor.get_gear_ratio,
+        "motor_damping": motor.get_motor_damping,  # NEW
+        "motor_inertia": motor.get_motor_inertia,  # NEW
+        "motor_pole_pairs": motor.get_motor_pole_pairs,  # NEW
+        "motor_phase_resistance": motor.get_motor_phase_resistance,  # NEW
+        "motor_phase_inductance": motor.get_motor_phase_inductance,  # NEW
+        "motor_flux": motor.get_motor_flux,  # NEW
+        "sub_version": motor.get_sub_version,  # NEW
+        # Motion Parameters
+        "acceleration": motor.get_acceleration,
+        "deceleration": motor.get_deceleration,
+        "max_speed": motor.get_max_speed,
+        # Communication Parameters
+        "master_id": motor.get_master_id,
+        "slave_id": motor.get_slave_id,
+        "timeout": motor.get_timeout,
+        "can_baudrate": motor.get_can_baudrate,
+        # Read-Only Calibration and Position
+        "phase_u_offset": motor.get_phase_u_offset,  # NEW
+        "phase_v_offset": motor.get_phase_v_offset,  # NEW
+        "compensation_factor_1": motor.get_compensation_factor_1,  # NEW
+        "compensation_factor_2": motor.get_compensation_factor_2,  # NEW
+        "angle_offset": motor.get_angle_offset,  # NEW
+        "direction": motor.get_direction,  # NEW
+        "motor_position": motor.get_motor_position,  # NEW
+        "output_shaft_position": motor.get_output_shaft_position,  # NEW
+    }
+
+    if param_name not in param_methods:
+        _error(f"Unknown parameter: {param_name}")
+        _error(f"Available parameters: {', '.join(param_methods.keys())}")
+        sys.exit(1)
+
+    value = await param_methods[param_name]()
+
+    # Handle special display formatting
+    if param_name == "control_mode":
+        # Convert ControlMode enum value to name
+        mode_name = ControlMode(value).name if isinstance(value, int) else value.name
+        _output(f"{param_name}: {mode_name}")
+    else:
+        _output(f"{param_name}: {value}")
+
+
+async def _motor_set_param(args: argparse.Namespace) -> None:
+    """Set semantic motor parameter using Motor class."""
+    bus = _create_bus(args.iface)
+    motor_type = MotorType(args.motor_type)
+    motor = Motor(
+        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+    )
+
+    param_name = args.parameter
+    value = args.value
+
+    # Map parameter names to Motor class setter methods
+    param_methods = {
+        # Control Mode
+        "control_mode": motor.set_control_mode,
+        # Voltage Protection
+        "under_voltage": motor.set_under_voltage,
+        "over_voltage": motor.set_over_voltage,
+        # Motor Characteristics
+        "torque_coefficient": motor.set_torque_coefficient,
+        "gear_efficiency": motor.set_gear_efficiency,
+        # Protection Limits
+        "over_temperature": motor.set_over_temperature,
+        "over_current": motor.set_over_current,
+        # Mapping Limits
+        "position_limit": motor.set_position_limit,
+        "velocity_limit": motor.set_velocity_limit,
+        "torque_limit": motor.set_torque_limit,
+        # Control Loop Parameters
+        "velocity_kp": motor.set_velocity_kp,
+        "velocity_ki": motor.set_velocity_ki,
+        "position_kp": motor.set_position_kp,
+        "position_ki": motor.set_position_ki,
+        # Current and Speed Loop Parameters (NEW)
+        "current_loop_bandwidth": motor.set_current_loop_bandwidth,
+        "speed_loop_damping": motor.set_speed_loop_damping,
+        "speed_loop_filter_bandwidth": motor.set_speed_loop_filter_bandwidth,
+        "current_loop_gain": motor.set_current_loop_gain,
+        "speed_loop_gain": motor.set_speed_loop_gain,
+        # Motion Parameters
+        "acceleration": motor.set_acceleration,
+        "deceleration": motor.set_deceleration,
+        "max_speed": motor.set_max_speed,
+        # Communication Parameters
+        "master_id": motor.set_master_id,
+        "slave_id": motor.set_slave_id,
+        "timeout": motor.set_timeout,
+        "can_baudrate": motor.set_can_baudrate,
+        # Note: Read-only parameters are not included in setter methods
+    }
+
+    if param_name not in param_methods:
+        _error(f"Unknown parameter: {param_name}")
+        _error(f"Available parameters: {', '.join(param_methods.keys())}")
+        sys.exit(1)
+
+    # Handle different parameter types
+    if param_name == "control_mode":
+        # Convert string to ControlMode enum
+        try:
+            value = ControlMode[value.upper()]
+        except KeyError:
+            _error(f"Invalid control mode: {value}")
+            _error(f"Valid modes: {', '.join([m.name for m in ControlMode])}")
+            sys.exit(1)
+    elif param_name in ["master_id", "slave_id", "timeout", "can_baudrate"]:
+        value = int(value)
+    else:
+        value = float(value)
+
+    result = await param_methods[param_name](value)
+    _output(f"{param_name} set to: {result}")
+
+
+def _run_async(coro: Coroutine[Any, Any, None]) -> None:
+    """Run async coroutine in CLI context."""
+    asyncio.run(coro)
 
 
 def _main() -> None:
-    parser = argparse.ArgumentParser()
+    """Execute main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Damiao motor control CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # Common arguments
+    def add_common_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--iface", default="can0", help="CAN interface to use")
+        parser.add_argument(
+            "slave_id", type=int, help="Motor slave ID (for sending commands)"
+        )
+        parser.add_argument(
+            "master_id", type=int, help="Motor master ID (for receiving responses)"
+        )
+        parser.add_argument(
+            "--motor-type",
+            required=True,
+            choices=[t.value for t in MotorType],
+            help="Motor type",
+        )
+
+    # Enable command
     enable_parser = subparsers.add_parser("enable", help="Enable motor")
-    enable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    enable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    add_common_args(enable_parser)
     enable_parser.set_defaults(func=_enable)
 
+    # Disable command
     disable_parser = subparsers.add_parser("disable", help="Disable motor")
-    disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    add_common_args(disable_parser)
     disable_parser.set_defaults(func=_disable)
 
-    disable_parser = subparsers.add_parser("set_zero", help="Set motor zero position")
-    disable_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    disable_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
-    disable_parser.set_defaults(func=_set_zero)
+    # Set zero command
+    set_zero_parser = subparsers.add_parser("set-zero", help="Set motor zero position")
+    add_common_args(set_zero_parser)
+    set_zero_parser.set_defaults(func=_set_zero)
 
-    refresh_parser = subparsers.add_parser("refresh", help="Refresh motor")
-    refresh_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    refresh_parser.add_argument("--motor-type", default=None, help="The motor type")
-    refresh_parser.add_argument("master_id", type=int, help="Master ID of the motor")
-    refresh_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    # Refresh command
+    refresh_parser = subparsers.add_parser("refresh", help="Get motor status")
+    add_common_args(refresh_parser)
     refresh_parser.set_defaults(func=_refresh)
 
+    # Control commands
     control_parser = subparsers.add_parser("control", help="Control motor")
-    control_subparsers = control_parser.add_subparsers(dest="command", required=True)
+    control_subparsers = control_parser.add_subparsers(
+        dest="control_mode", required=True
+    )
 
+    # MIT control
     mit_parser = control_subparsers.add_parser("mit", help="Control motor in MIT mode")
-    mit_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    mit_parser.add_argument("motor_type", help="The motor type")
-    mit_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
-    mit_parser.add_argument("kp", type=float, help="Proportional gain")
-    mit_parser.add_argument("kd", type=float, help="Derivative gain")
+    add_common_args(mit_parser)
+    mit_parser.add_argument("kp", type=float, help="Proportional gain (0-500)")
+    mit_parser.add_argument("kd", type=float, help="Derivative gain (0-5)")
     mit_parser.add_argument("q", type=float, help="Desired position (radians)")
-    mit_parser.add_argument("dq", type=float, help="Desired velocity (radians/second)")
+    mit_parser.add_argument("dq", type=float, help="Desired velocity (rad/s)")
     mit_parser.add_argument("tau", type=float, help="Desired torque (Nm)")
     mit_parser.set_defaults(func=_control_mit)
 
+    # Position/velocity control
     pos_vel_parser = control_subparsers.add_parser(
-        "pos_vel", help="Control motor in position and velocity mode"
+        "pos_vel", help="Control motor in position/velocity mode"
     )
-    pos_vel_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    pos_vel_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    add_common_args(pos_vel_parser)
     pos_vel_parser.add_argument("pos", type=float, help="Desired position (radians)")
-    pos_vel_parser.add_argument(
-        "vel", type=float, help="Desired velocity (radians/second)"
-    )
+    pos_vel_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     pos_vel_parser.set_defaults(func=_control_pos_vel)
 
+    # Velocity control
     vel_parser = control_subparsers.add_parser(
         "vel", help="Control motor in velocity mode"
     )
-    vel_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    vel_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
-    vel_parser.add_argument("vel", type=float, help="Desired velocity (radians/second)")
+    add_common_args(vel_parser)
+    vel_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     vel_parser.set_defaults(func=_control_vel)
 
+    # Position/force control
     pos_force_parser = control_subparsers.add_parser(
-        "pos_force", help="Control motor in force-position hybrid mode"
+        "pos_force", help="Control motor in position/force mode"
     )
-    pos_force_parser.add_argument(
-        "--iface", default="can0", help="CAN interface to use"
-    )
-    pos_force_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
+    add_common_args(pos_force_parser)
     pos_force_parser.add_argument("pos", type=float, help="Desired position (radians)")
-    pos_force_parser.add_argument(
-        "vel", type=float, help="Desired velocity (radians/second)"
-    )
-    pos_force_parser.add_argument(
-        "i_norm", type=float, help="Desired normalized current (0-1)"
-    )
+    pos_force_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
+    pos_force_parser.add_argument("i_norm", type=float, help="Normalized current (0-1)")
     pos_force_parser.set_defaults(func=_control_pos_force)
 
-    register_parser = subparsers.add_parser("register", help="Manage motor register")
-    register_subparsers = register_parser.add_subparsers(dest="command", required=True)
+    # Parameter commands (high-level)
+    param_parser = subparsers.add_parser("param", help="Semantic parameter operations")
+    param_subparsers = param_parser.add_subparsers(dest="param_op", required=True)
 
-    read_parser = register_subparsers.add_parser("read", help="Read motor register")
-    read_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    read_parser.add_argument(
-        "--as-float", action="store_true", default=False, help="Read as float"
+    # Parameter get
+    param_get_parser = param_subparsers.add_parser("get", help="Get semantic parameter")
+    add_common_args(param_get_parser)
+    param_get_parser.add_argument(
+        "parameter",
+        help="Parameter name (e.g., over_voltage, torque_limit, velocity_kp)",
     )
-    read_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
-    read_parser.add_argument("address", type=int, help="Register address to read")
-    read_parser.set_defaults(func=_register_read)
+    param_get_parser.set_defaults(func=_motor_get_param)
 
-    write_parser = register_subparsers.add_parser("write", help="Write motor register")
-    write_parser.add_argument("--iface", default="can0", help="CAN interface to use")
-    write_parser.add_argument(
-        "--as-float", action="store_true", default=False, help="Write as float"
+    # Parameter set
+    param_set_parser = param_subparsers.add_parser("set", help="Set semantic parameter")
+    add_common_args(param_set_parser)
+    param_set_parser.add_argument(
+        "parameter",
+        help="Parameter name (e.g., over_voltage, torque_limit, velocity_kp)",
     )
-    write_parser.add_argument("slave_id", type=int, help="Slave ID of the motor")
-    write_parser.add_argument("address", type=int, help="Register address to write")
-    write_parser.add_argument("value", type=float, help="Value to write")
-    write_parser.set_defaults(func=_register_write)
+    param_set_parser.add_argument("value", type=float, help="Parameter value")
+    param_set_parser.set_defaults(func=_motor_set_param)
+
+    # Save command
+    save_parser = subparsers.add_parser("save", help="Save motor parameters to flash")
+    add_common_args(save_parser)
+    save_parser.set_defaults(func=_save_parameters)
 
     args = parser.parse_args()
-    args.func(args)
+
+    # Run the async function
+    _run_async(args.func(args))
 
 
 if __name__ == "__main__":
