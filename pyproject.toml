@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "python-can",
   "ikpy>=3.4.2",
+  "mujoco>=3.3.5",
 ]
 
 [project.scripts]
