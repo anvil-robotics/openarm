@@ -38,7 +38,7 @@ High-level arm control abstraction:
 
 - **`ros`**: ROS 2 wrapper exposing OpenArm functionality
 - **`description`**: Robot URDF files
-- **`sim`**: MuJoCo-based simulation
+- **`simulation`**: MuJoCo-based simulation with complete robot model and interactive environment
 - **`ik`**: Inverse kinematics solvers (starting with IKFast)
 - **`gravity_comp`**: Gravity compensation controllers (starting with MuJoCo KDL)
 
