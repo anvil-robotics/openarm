@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "A Python package for robotic arm control and automation"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["python-can"]
+dependencies = [
+  "python-can",
+  "ikpy>=3.4.2",
+]
 
 [project.scripts]
 damiao = "openarm.damiao.__main__:_main"
@@ -19,4 +22,4 @@ include = ["openarm*"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["COM812", "D203", "D213", "PLR0913", "PLR0915", "ERA001"]
+ignore = ["COM812", "D203", "D213", "PLR0913", "PLR0915", "ERA001", "S101"]

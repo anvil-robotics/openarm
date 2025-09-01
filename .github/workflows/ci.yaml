@@ -20,7 +20,10 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -e .
-          pip install build ruff
+          pip install build pytest ruff
+
+      - name: Test Package
+        run: pytest
 
       - name: Check Formatting
         uses: dprint/check@v2.3
