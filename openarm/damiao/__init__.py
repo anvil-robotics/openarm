@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from openarm.bus import Bus
 
+from .detect import detect_motors
 from .encoding import (
     ControlMode,
     MitControlParams,
@@ -1261,4 +1262,5 @@ __all__ = [
     "RegisterAddress",
     "SaveResponse",
     "VelControlParams",
+    "detect_motors",
 ]
