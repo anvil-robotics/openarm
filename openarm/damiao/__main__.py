@@ -36,6 +36,7 @@ from typing import Any
 from openarm.bus import Bus
 
 from . import (
+    ControlMode,
     MitControlParams,
     Motor,
     MotorState,
@@ -248,6 +249,8 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
 
     # Map parameter names to Motor class methods
     param_methods = {
+        # Control Mode
+        "control_mode": motor.get_control_mode,
         # Voltage Protection
         "under_voltage": motor.get_under_voltage,
         "over_voltage": motor.get_over_voltage,
@@ -310,7 +313,14 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     value = await param_methods[param_name]()
-    _output(f"{param_name}: {value}")
+    
+    # Handle special display formatting
+    if param_name == "control_mode":
+        # Convert ControlMode enum value to name
+        mode_name = ControlMode(value).name if isinstance(value, int) else value.name
+        _output(f"{param_name}: {mode_name}")
+    else:
+        _output(f"{param_name}: {value}")
 
 
 async def _motor_set_param(args: argparse.Namespace) -> None:
@@ -326,6 +336,8 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
 
     # Map parameter names to Motor class setter methods
     param_methods = {
+        # Control Mode
+        "control_mode": motor.set_control_mode,
         # Voltage Protection
         "under_voltage": motor.set_under_voltage,
         "over_voltage": motor.set_over_voltage,
@@ -367,8 +379,16 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
         _error(f"Available parameters: {', '.join(param_methods.keys())}")
         sys.exit(1)
 
-    # Handle int vs float parameters
-    if param_name in ["master_id", "slave_id", "timeout", "can_baudrate"]:
+    # Handle different parameter types
+    if param_name == "control_mode":
+        # Convert string to ControlMode enum
+        try:
+            value = ControlMode[value.upper()]
+        except KeyError:
+            _error(f"Invalid control mode: {value}")
+            _error(f"Valid modes: {', '.join([m.name for m in ControlMode])}")
+            sys.exit(1)
+    elif param_name in ["master_id", "slave_id", "timeout", "can_baudrate"]:
         value = int(value)
     else:
         value = float(value)

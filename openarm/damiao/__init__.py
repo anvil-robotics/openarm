@@ -155,6 +155,16 @@ class Motor:
         """Get motor type."""
         return self._motor_type
 
+    def get_control_mode(self) -> Coroutine[Any, Any, ControlMode]:
+        """Get motor control mode. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields ControlMode when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.CTRL_MODE)
+        return decode_register_int(self._bus, self._master_id)
+
     def set_control_mode(self, mode: ControlMode) -> Coroutine[Any, Any, ControlMode]:
         """Set motor control mode. Returns coroutine to be awaited.
 
