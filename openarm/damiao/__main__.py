@@ -409,25 +409,21 @@ def _main() -> None:
     # Enable command
     enable_parser = subparsers.add_parser("enable", help="Enable motor")
     add_common_args(enable_parser)
-    add_motor_type_arg(enable_parser)
     enable_parser.set_defaults(func=_enable)
 
     # Disable command
     disable_parser = subparsers.add_parser("disable", help="Disable motor")
     add_common_args(disable_parser)
-    add_motor_type_arg(disable_parser)
     disable_parser.set_defaults(func=_disable)
 
     # Set zero command
     set_zero_parser = subparsers.add_parser("set-zero", help="Set motor zero position")
     add_common_args(set_zero_parser)
-    add_motor_type_arg(set_zero_parser)
     set_zero_parser.set_defaults(func=_set_zero)
 
     # Refresh command
     refresh_parser = subparsers.add_parser("refresh", help="Get motor status")
     add_common_args(refresh_parser)
-    add_motor_type_arg(refresh_parser)
     refresh_parser.set_defaults(func=_refresh)
 
     # Control commands
@@ -439,7 +435,6 @@ def _main() -> None:
     # MIT control
     mit_parser = control_subparsers.add_parser("mit", help="Control motor in MIT mode")
     add_common_args(mit_parser)
-    add_motor_type_arg(mit_parser)
     mit_parser.add_argument("kp", type=float, help="Proportional gain (0-500)")
     mit_parser.add_argument("kd", type=float, help="Derivative gain (0-5)")
     mit_parser.add_argument("q", type=float, help="Desired position (radians)")
@@ -452,7 +447,6 @@ def _main() -> None:
         "pos_vel", help="Control motor in position/velocity mode"
     )
     add_common_args(pos_vel_parser)
-    add_motor_type_arg(pos_vel_parser)
     pos_vel_parser.add_argument("pos", type=float, help="Desired position (radians)")
     pos_vel_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     pos_vel_parser.set_defaults(func=_control_pos_vel)
@@ -462,7 +456,6 @@ def _main() -> None:
         "vel", help="Control motor in velocity mode"
     )
     add_common_args(vel_parser)
-    add_motor_type_arg(vel_parser)
     vel_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     vel_parser.set_defaults(func=_control_vel)
 
@@ -471,7 +464,6 @@ def _main() -> None:
         "pos_force", help="Control motor in position/force mode"
     )
     add_common_args(pos_force_parser)
-    add_motor_type_arg(pos_force_parser)
     pos_force_parser.add_argument("pos", type=float, help="Desired position (radians)")
     pos_force_parser.add_argument("vel", type=float, help="Desired velocity (rad/s)")
     pos_force_parser.add_argument("i_norm", type=float, help="Normalized current (0-1)")
@@ -484,7 +476,6 @@ def _main() -> None:
     # Parameter get
     param_get_parser = param_subparsers.add_parser("get", help="Get semantic parameter")
     add_common_args(param_get_parser)
-    add_motor_type_arg(param_get_parser)
     param_get_parser.add_argument(
         "parameter",
         help="Parameter name (e.g., over_voltage, torque_limit, velocity_kp)",
@@ -494,7 +485,6 @@ def _main() -> None:
     # Parameter set
     param_set_parser = param_subparsers.add_parser("set", help="Set semantic parameter")
     add_common_args(param_set_parser)
-    add_motor_type_arg(param_set_parser)
     param_set_parser.add_argument(
         "parameter",
         help="Parameter name (e.g., over_voltage, torque_limit, velocity_kp)",
@@ -505,7 +495,6 @@ def _main() -> None:
     # Save command
     save_parser = subparsers.add_parser("save", help="Save motor parameters to flash")
     add_common_args(save_parser)
-    add_motor_type_arg(save_parser)
     save_parser.set_defaults(func=_save_parameters)
 
     args = parser.parse_args()
