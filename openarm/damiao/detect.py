@@ -64,6 +64,9 @@ def detect_motors(
             # Timeout, no more messages
             break
 
+        if message.is_error_frame:
+            continue
+
         # The arbitration_id IS the master_id!
         master_id = message.arbitration_id
 
