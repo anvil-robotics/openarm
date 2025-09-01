@@ -399,8 +399,6 @@ def _main() -> None:
         parser.add_argument(
             "master_id", type=int, help="Motor master ID (for receiving responses)"
         )
-
-    def add_motor_type_arg(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--motor-type",
             required=True,
