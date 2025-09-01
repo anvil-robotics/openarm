@@ -2,7 +2,6 @@
 
 from asyncio import Queue, QueueFull, QueueShutDown, get_running_loop
 from collections import defaultdict
-from collections.abc import Coroutine
 from typing import Protocol
 
 import can
@@ -11,7 +10,7 @@ import can
 class AsyncBusProto(Protocol):
     """Protocol for async CAN bus."""
 
-    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+    async def send(self, msg: can.Message) -> None:
         """Send a CAN message."""
         ...
 
@@ -27,11 +26,11 @@ class AsyncBusProto(Protocol):
 class AsyncBusMuxProto(Protocol):
     """Protocol for async CAN bus with multiplexing by arbitration ID."""
 
-    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+    async def send(self, msg: can.Message) -> None:
         """Send a CAN message."""
         ...
 
-    def recv(self, arbitration_id: int) -> Coroutine[any, any, can.Message]:
+    async def recv(self, arbitration_id: int) -> can.Message:
         """Receive a CAN message with specific arbitration ID."""
         ...
 
@@ -77,17 +76,16 @@ class AsyncBusMux:
             # drop message
             pass
 
-    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+    async def send(self, msg: can.Message) -> None:
         """Send a CAN message.
 
         Args:
             msg: The CAN message to send.
-            timeout: Optional send timeout in seconds.
 
         """
-        self.bus.send(msg, timeout)
+        self.bus.send(msg)
 
-    def recv(self, arbitration_id: int) -> Coroutine[any, any, can.Message]:
+    async def recv(self, arbitration_id: int) -> can.Message:
         """Receive a CAN message with the specified arbitration ID.
 
         Messages with other arbitration IDs are queued separately.
@@ -103,7 +101,7 @@ class AsyncBusMux:
             raise QueueShutDown
 
         # defaultdict automatically creates queue if it doesn't exist
-        return self._queues[arbitration_id].get()
+        return await self._queues[arbitration_id].get()
 
     def shutdown(self) -> None:
         """Shutdown the bus multiplexer and clean up resources."""
@@ -149,15 +147,14 @@ class AsyncBus:
             # drop message if queue is full
             pass
 
-    def send(self, msg: can.Message, timeout: float | None = None) -> None:
+    async def send(self, msg: can.Message) -> None:
         """Send a CAN message.
 
         Args:
             msg: The CAN message to send.
-            timeout: Optional send timeout in seconds.
 
         """
-        self.bus.send(msg, timeout)
+        self.bus.send(msg)
 
     async def recv(self) -> can.Message:
         """Receive the next CAN message regardless of arbitration ID.
