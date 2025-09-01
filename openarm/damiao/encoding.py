@@ -457,7 +457,7 @@ def encode_write_register_int(
 
     """
     # Pack as uint32 (4 bytes)
-    # Format: '<HBBI' = slave_id(H) + commands(2*B) + value(I=uint32)
+    # Format: '<HBBI' = slave_id(H) + command(B) + address(B) + value(I=uint32)
     # Reference: Integer register write format in DM_CAN.py __write_motor_param
     data = struct.pack(
         "<HBBI",
