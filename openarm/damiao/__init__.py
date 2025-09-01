@@ -1,25 +1,55 @@
-"""Damiao subpackage for OpenArm.
+"""Damiao motor control package for OpenArm.
 
-Provides utilities for constructing CAN messages to control Damiao motors,
-including commands for enabling/disabling motors, reading registers, and
-decoding motor responses.
+High-level interface for controlling Damiao motors through CAN bus communication.
+This module provides the main Motor class that orchestrates encode/decode operations
+from the low-level encoding.py implementation.
+
+Reference: README.md High-Level Motor Class section for architecture details.
 """
 
-import struct
-from enum import IntEnum, StrEnum
-from typing import NamedTuple
+from collections.abc import Coroutine
+from enum import Enum
+from typing import Any, Literal
 
-import can
+from openarm.bus import Bus
+
+from .detect import detect_motors
+from .encoding import (
+    ControlMode,
+    MitControlParams,
+    MotorLimits,
+    MotorState,
+    PosForceControlParams,
+    PosVelControlParams,
+    RegisterAddress,
+    SaveResponse,
+    VelControlParams,
+    decode_motor_state,
+    decode_register_float,
+    decode_register_int,
+    decode_save_response,
+    encode_control_mit,
+    encode_control_pos_vel,
+    encode_control_torque_pos,
+    encode_control_vel,
+    encode_disable_motor,
+    encode_enable_motor,
+    encode_read_register,
+    encode_refresh_status,
+    encode_save_parameters,
+    encode_set_zero_position,
+    encode_write_register_float,
+    encode_write_register_int,
+)
 
 __version__ = "0.1.0"
 
-_STATE_CODE = 0x11
-_READ_REGISTER_CODE = 0x33
-_WRITE_REGISTER_CODE = 0x55
 
+class MotorType(str, Enum):
+    """Enumeration of Damiao motor types.
 
-class MotorType(StrEnum):
-    """Enumeration of Damiao motor types."""
+    Reference: DM_CAN.py DM_Motor_Type enum and Limit_Param array lines 65-69
+    """
 
     DM4310 = "DM4310"
     DM4310_48V = "DM4310_48V"
@@ -35,532 +65,1212 @@ class MotorType(StrEnum):
     DMG6220 = "DMG6220"
 
 
-class _MotorLimit(NamedTuple):
-    q_max: float
-    dq_max: float
-    tau_max: float
+# CAN Baudrate mappings
+_BAUDRATE_TO_CODE = {
+    100000: 0,  # 100 kbps
+    250000: 1,  # 250 kbps
+    500000: 2,  # 500 kbps
+    750000: 3,  # 750 kbps
+    1000000: 4,  # 1 Mbps
+}
+_CODE_TO_BAUDRATE = {v: k for k, v in _BAUDRATE_TO_CODE.items()}
 
-
-_MOTOR_LIMITS = {
-    MotorType.DM4310: _MotorLimit(q_max=12.5, dq_max=30, tau_max=10),
-    MotorType.DM4310_48V: _MotorLimit(q_max=12.5, dq_max=50, tau_max=10),
-    MotorType.DM4340: _MotorLimit(q_max=12.5, dq_max=8, tau_max=28),
-    MotorType.DM4340_48V: _MotorLimit(q_max=12.5, dq_max=10, tau_max=28),
-    MotorType.DM6006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=20),
-    MotorType.DM8006: _MotorLimit(q_max=12.5, dq_max=45, tau_max=40),
-    MotorType.DM8009: _MotorLimit(q_max=12.5, dq_max=45, tau_max=54),
-    MotorType.DM10010L: _MotorLimit(q_max=12.5, dq_max=25, tau_max=200),
-    MotorType.DM10010: _MotorLimit(q_max=12.5, dq_max=20, tau_max=200),
-    MotorType.DMH3510: _MotorLimit(q_max=12.5, dq_max=280, tau_max=1),
-    MotorType.DMH6215: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
-    MotorType.DMG6220: _MotorLimit(q_max=12.5, dq_max=45, tau_max=10),
+# Motor limit configurations for all Damiao motor types
+# Reference: DM_CAN.py Limit_Param array structure lines 65-69
+MOTOR_LIMITS = {
+    MotorType.DM4310: MotorLimits(q_max=12.5, dq_max=30.0, tau_max=10.0),
+    MotorType.DM4310_48V: MotorLimits(q_max=12.5, dq_max=50.0, tau_max=10.0),
+    MotorType.DM4340: MotorLimits(q_max=12.5, dq_max=8.0, tau_max=28.0),
+    MotorType.DM4340_48V: MotorLimits(q_max=12.5, dq_max=10.0, tau_max=28.0),
+    MotorType.DM6006: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=20.0),
+    MotorType.DM8006: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=40.0),
+    MotorType.DM8009: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=54.0),
+    MotorType.DM10010L: MotorLimits(q_max=12.5, dq_max=25.0, tau_max=200.0),
+    MotorType.DM10010: MotorLimits(q_max=12.5, dq_max=20.0, tau_max=200.0),
+    MotorType.DMH3510: MotorLimits(q_max=12.5, dq_max=280.0, tau_max=1.0),
+    MotorType.DMH6215: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=10.0),
+    MotorType.DMG6220: MotorLimits(q_max=12.5, dq_max=45.0, tau_max=10.0),
 }
 
 
-class RegisterAddress(IntEnum):
-    """Enumeration of Damiao motor register addresses."""
+class Motor:
+    """High-level interface for controlling a Damiao motor.
 
-    UV_VALUE = 0
-    KT_VALUE = 1
-    OT_VALUE = 2
-    OC_VALUE = 3
-    ACC = 4
-    DEC = 5
-    MAX_SPD = 6
-    MST_ID = 7
-    ESC_ID = 8
-    TIMEOUT = 9
-    CTRL_MODE = 10
-    DAMP = 11
-    INERTIA = 12
-    HW_VER = 13
-    SW_VER = 14
-    SN = 15
-    NPP = 16
-    RS = 17
-    LS = 18
-    FLUX = 19
-    GR = 20
-    PMAX = 21
-    VMAX = 22
-    TMAX = 23
-    I_BW = 24
-    KP_ASR = 25
-    KI_ASR = 26
-    KP_APR = 27
-    KI_APR = 28
-    OV_VALUE = 29
-    GREF = 30
-    DETA = 31
-    V_BW = 32
-    IQ_C1 = 33
-    VL_C1 = 34
-    CAN_BAR = 35
-    SUB_VER = 36
-    U_OFF = 50
-    V_OFF = 51
-    K1 = 52
-    K2 = 53
-    M_OFF = 54
-    DIR = 55
-    P_M = 80
-    XOUT = 81
+    This class combines encode/decode functions from encoding.py to provide
+    a convenient interface that follows the request-response pattern.
 
+    The motor uses two IDs:
+    - slave_id: For sending commands TO the motor
+    - master_id: For receiving responses FROM the motor
 
-class ControlMode(IntEnum):
-    """Enumeration of Damiao motor control mode."""
+    These IDs can be the same or different depending on motor configuration.
 
-    MIT = 1
-    POS_VEL = 2
-    VEL = 3
-    POS_FORCE = 4
-
-
-def enable_command(slave_id: int) -> can.Message:
-    """Create a CAN message to enable a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, enables the motor.
-
+    Reference: README.md High-Level Motor Class section lines 320-345
     """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC],
-        is_extended_id=False,
-    )
 
-
-def disable_command(slave_id: int) -> can.Message:
-    """Create a CAN message to disable a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, disables the motor.
-
-    """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD],
-        is_extended_id=False,
-    )
-
-
-def set_zero_command(slave_id: int) -> can.Message:
-    """Create a CAN message to set the current position of a Damiao motor as zero.
-
-    Args:
-        slave_id (int): The slave ID of the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, sets the motor's current position
-            as its zero reference.
-
-    """
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE],
-        is_extended_id=False,
-    )
-
-
-def refresh_command(slave_id: int) -> can.Message:
-    """Create a CAN message to refresh the state of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-
-    Returns:
-        can.Message: A CAN message that, when sent, prompts the motor
-            to send its current state.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            0xCC,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-        ],
-        is_extended_id=False,
-    )
-
-
-def _map_float_to_uint(val: float, min_val: float, max_val: float, bits: int) -> int:
-    if val < min_val:
-        val = min_val
-    elif val > max_val:
-        val = max_val
-
-    norm = (val - min_val) / (max_val - min_val)
-    return int(norm * ((1 << bits) - 1))
-
-
-def control_mit_command(
-    motor_type: MotorType,
-    slave_id: int,
-    kp: float,
-    kd: float,
-    q: float,
-    dq: float,
-    tau: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in MIT mode.
-
-    Args:
-        motor_type (MotorType): The type of the motor.
-        slave_id (int): Slave ID for the target motor.
-        kp (float): Proportional gain.
-        kd (float): Derivative gain.
-        q (float): Desired position (radians).
-        dq (float): Desired velocity (radians/second).
-        tau (float): Desired torque (Nm).
-
-    Returns:
-        can.Message: A CAN message with MIT-mode control parameters.
-
-    """
-    lim = _MOTOR_LIMITS[motor_type]
-
-    kp_uint = _map_float_to_uint(kp, 0, 500, 12)
-    kd_uint = _map_float_to_uint(kd, 0, 500, 12)
-    q_uint = _map_float_to_uint(q, -lim.q_max, lim.q_max, 16)
-    dq_uint = _map_float_to_uint(dq, -lim.dq_max, lim.dq_max, 12)
-    tau_uint = _map_float_to_uint(tau, -lim.tau_max, lim.tau_max, 12)
-
-    return can.Message(
-        arbitration_id=slave_id,
-        data=[
-            (q_uint >> 8) & 0xFF,
-            q_uint & 0xFF,
-            dq_uint >> 4,
-            ((dq_uint & 0xF) << 4) | ((kp_uint >> 8) & 0xF),
-            kp_uint & 0xFF,
-            kd_uint >> 4,
-            ((kd_uint & 0xF) << 4) | ((tau_uint >> 8) & 0xF),
-            tau_uint & 0xFF,
-        ],
-        is_extended_id=False,
-    )
-
-
-def control_pos_vel_command(
-    slave_id: int,
-    pos: float,
-    vel: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in position and velocity mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        pos (float): Desired position (radians).
-        vel (float): Desired velocity (radians/second).
-
-    Returns:
-        can.Message: A CAN message containing position and velocity control parameters.
-
-    """
-    return can.Message(
-        arbitration_id=0x100 + slave_id,
-        data=[*struct.pack("<f", float(pos)), *struct.pack("<f", float(vel))],
-        is_extended_id=False,
-    )
-
-
-def control_vel_command(
-    slave_id: int,
-    vel: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in velocity mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        vel (float): Desired velocity (radians/second).
-
-    Returns:
-        can.Message: A CAN message containing velocity control parameters.
-
-    """
-    return can.Message(
-        arbitration_id=0x200 + slave_id,
-        data=[*struct.pack("<f", float(vel)), 0x00, 0x00, 0x00, 0x00],
-        is_extended_id=False,
-    )
-
-
-def control_pos_force_command(
-    slave_id: int,
-    pos: float,
-    vel: float,
-    i_norm: float,
-) -> can.Message:
-    """Create a CAN message to control a Damiao motor in force-position hybrid mode.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        pos (float): Desired position (radians).
-        vel (float): Desired velocity (radians/second).
-        i_norm (float): Desired normalized current in the range 0-1,
-            where 1 corresponds to the motor's maximum current.
-
-    Returns:
-        can.Message: A CAN message containing the position, velocity, and current
-            parameters.
-
-    """
-    if i_norm < 0:
-        i_norm = 0
-    elif i_norm > 1:
-        i_norm = 1
-
-    vel_uint = int(vel * 100)
-    i_uint = int(i_norm * 10000)
-
-    return can.Message(
-        arbitration_id=0x300 + slave_id,
-        data=[
-            *struct.pack("<f", float(pos)),
-            vel_uint & 0xFF,
-            vel_uint >> 8,
-            i_uint & 0xFF,
-            i_uint >> 8,
-        ],
-        is_extended_id=False,
-    )
-
-
-def read_register_command(slave_id: int, address: RegisterAddress) -> can.Message:
-    """Create a CAN message to read a specific register from a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID for the target motor.
-        address (RegisterAddress): The register address to read.
-
-    Returns:
-        can.Message: A CAN message that, when sent, requests the register value.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            _READ_REGISTER_CODE,
-            address,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-        ],
-        is_extended_id=False,
-    )
-
-
-def write_register_command(
-    slave_id: int, address: RegisterAddress, value: float, *, as_float: bool = False
-) -> can.Message:
-    """Create a CAN message to write a value to a specific register of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID of the target motor.
-        address (RegisterAddress): The register address to write.
-        value (float): The value to write to the register.
-        as_float (bool, optional): If True, the value is written as a 32-bit float.
-
-    Returns:
-        can.Message: A CAN message that, when sent, writes the value to the register.
-
-    """
-    return can.Message(
-        arbitration_id=0x7FF,
-        data=[
-            slave_id & 0xFF,
-            (slave_id >> 8) & 0xFF,
-            _WRITE_REGISTER_CODE,
-            address,
-            *(
-                struct.pack("<f", float(value))
-                if as_float
-                else struct.pack("<I", int(value))
-            ),
-        ],
-        is_extended_id=False,
-    )
-
-
-def set_control_mode_command(slave_id: int, mode: ControlMode) -> can.Message:
-    """Create a CAN message to set the control mode of a Damiao motor.
-
-    Args:
-        slave_id (int): Slave ID of the target motor.
-        mode (ControlMode): The control mode to set.
-
-    Returns:
-        can.Message: A CAN message that, when sent, sets the motor's control mode.
-
-    """
-    return write_register_command(slave_id, RegisterAddress.CTRL_MODE, mode)
-
-
-class Response:
-    """Base class for responses from Damiao motors."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a Response object from a CAN message.
+    def __init__(
+        self,
+        bus: Bus,
+        *,
+        slave_id: int,
+        master_id: int,
+        motor_type: MotorType,
+    ) -> None:
+        """Initialize a Motor instance.
 
         Args:
-            msg (can.Message): The CAN message received from the motor.
+            bus: CAN bus instance for message transmission and reception
+            slave_id: Motor slave ID for sending commands TO the motor
+            master_id: Motor master ID for receiving responses FROM the motor
+            motor_type: Motor type enum for automatic limit configuration
+
+        Note: slave_id, master_id, and motor_type must be specified as keyword args.
+
+        Reference: DM_CAN.py Motor class with SlaveID and MasterID
 
         """
-        self.master_id = msg.arbitration_id
+        self._bus = bus
+        self._slave_id = slave_id  # SlaveID for sending commands
+        self._master_id = master_id  # MasterID for receiving responses
+        self._motor_type = motor_type
+        self._motor_limits = MOTOR_LIMITS[motor_type]
 
+    @property
+    def bus(self) -> Bus:
+        """Get CAN bus instance."""
+        return self._bus
 
-class UnknownResponse(Response):
-    """Represents an unknown response from a Damiao motor."""
+    @property
+    def slave_id(self) -> int:
+        """Get motor slave ID for sending commands."""
+        return self._slave_id
 
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize an UnknownResponse object from a CAN message.
+    @property
+    def master_id(self) -> int:
+        """Get motor master ID for receiving responses."""
+        return self._master_id
 
-        Args:
-            msg (can.Message): The CAN message received from the motor.
+    @property
+    def motor_type(self) -> MotorType:
+        """Get motor type."""
+        return self._motor_type
 
-        """
-        super().__init__(msg)
-        self.data = msg.data
-
-
-class MotorState(NamedTuple):
-    """Represents a state data from a Damiao motor."""
-
-    q: float
-    dq: float
-    tau: float
-    t_mos: int
-    t_rotor: int
-
-
-def _map_uint_to_float(val: int, min_val: float, max_val: float, bits: int) -> float:
-    norm = val / ((1 << bits) - 1)
-    return min_val + norm * (max_val - min_val)
-
-
-class StateResponse(Response):
-    """Represents a response containing state data from a Damiao motor."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a StateResponse object from a CAN message.
-
-        Args:
-            msg (can.Message): The CAN message received from the motor.
-
-        """
-        super().__init__(msg)
-        self.q = (msg.data[1] << 8) | msg.data[2]
-        self.dq = (msg.data[3] << 4) | (msg.data[4] >> 4)
-        self.tau = ((msg.data[4] & 0xF) << 8) | msg.data[5]
-        self.t_mos = msg.data[6]
-        self.t_rotor = msg.data[7]
-
-    def as_motor(self, motor_type: MotorType) -> MotorState:
-        """Convert the raw state values to scaled motor units.
-
-        Args:
-            motor_type (MotorType): The type of the motor.
+    def get_control_mode(self) -> Coroutine[Any, Any, ControlMode]:
+        """Get motor control mode. Returns coroutine to be awaited.
 
         Returns:
-            MotorState: A scaled motor state.
+            Coroutine that yields ControlMode when awaited
 
         """
-        lim = _MOTOR_LIMITS[motor_type]
-        return MotorState(
-            q=_map_uint_to_float(self.q, -lim.q_max, lim.q_max, 16),
-            dq=_map_uint_to_float(self.dq, -lim.dq_max, lim.dq_max, 12),
-            tau=_map_uint_to_float(self.tau, -lim.tau_max, lim.tau_max, 12),
-            t_mos=self.t_mos,
-            t_rotor=self.t_rotor,
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.CTRL_MODE)
+        return decode_register_int(self._bus, self._master_id)
+
+    def set_control_mode(self, mode: ControlMode) -> Coroutine[Any, Any, ControlMode]:
+        """Set motor control mode. Returns coroutine to be awaited.
+
+        Args:
+            mode: Control mode to set (MIT, POS_VEL, VEL, TORQUE_POS)
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Write control mode to register 10 as integer value
+        # Reference: DM_CAN.py switchControlMode using __write_motor_param with RID=10
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.CTRL_MODE, int(mode)
         )
 
+        # Return coroutine from asynchronous decode function
+        return decode_register_int(self._bus, self._master_id)
 
-class RegisterResponse(Response):
-    """Represents a response containing register data from a Damiao motor."""
-
-    def __init__(self, msg: can.Message) -> None:
-        """Initialize a RegisterResponse object from a CAN message.
+    def control_mit(self, params: MitControlParams) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in MIT mode. Returns coroutine to be awaited.
 
         Args:
-            msg (can.Message): The CAN message received from the motor.
-
-        """
-        super().__init__(msg)
-        self.slave_id = msg.data[0] | (msg.data[1] << 8)
-        self.register = RegisterAddress(msg.data[3])
-        self.data = bytes(msg.data[4:8])
-
-    def as_int(self) -> int:
-        """Interpret the register data as a 32-bit unsigned integer.
+            params: MIT control parameters dataclass
 
         Returns:
-            int: The register value as an integer.
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
 
         """
-        return struct.unpack("<I", self.data)[0]
+        # Encode MIT control and send request
+        encode_control_mit(self._bus, self._slave_id, self._motor_limits, params)
 
-    def as_float(self) -> float:
-        """Interpret the register data as a 32-bit float.
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    def control_pos_vel(
+        self, params: PosVelControlParams
+    ) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in position/velocity mode. Returns coroutine to be awaited.
+
+        Args:
+            params: Position and velocity control parameters dataclass
 
         Returns:
-            float: The register value as a float.
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
 
         """
-        return struct.unpack("<f", self.data)[0]
+        # Encode position/velocity control and send request
+        encode_control_pos_vel(self._bus, self._slave_id, params)
 
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
-def decode_response(msg: can.Message) -> Response:
-    """Decode a CAN message into the appropriate Response subclass.
+    def control_vel(self, params: VelControlParams) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in velocity mode. Returns coroutine to be awaited.
 
-    Args:
-        msg (can.Message): The CAN message to decode.
+        Args:
+            params: Velocity control parameters dataclass
 
-    Returns:
-        Response: Either a RegisterResponse or UnknownResponse depending on the command.
+        Returns:
+            Coroutine that yields MotorState when awaited
 
-    """
-    if msg.data[0] == _STATE_CODE:
-        return StateResponse(msg)
-    if msg.data[2] == _READ_REGISTER_CODE or msg.data[2] == _WRITE_REGISTER_CODE:
-        return RegisterResponse(msg)
+        Reference: README.md Motor class method pattern lines 334-340
 
-    return UnknownResponse(msg)
+        """
+        # Encode velocity control and send request
+        encode_control_vel(self._bus, self._slave_id, params)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    def control_pos_force(
+        self, params: PosForceControlParams
+    ) -> Coroutine[Any, Any, MotorState]:
+        """Control motor in position/force mode. Returns coroutine to be awaited.
+
+        Args:
+            params: Position and force control parameters dataclass
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode position/force control and send request
+        encode_control_torque_pos(self._bus, self._slave_id, params)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    def enable(self) -> Coroutine[Any, Any, MotorState]:
+        """Enable motor. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode enable command and send request
+        encode_enable_motor(self._bus, self._slave_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    def disable(self) -> Coroutine[Any, Any, MotorState]:
+        """Disable motor. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode disable command and send request
+        encode_disable_motor(self._bus, self._slave_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    def set_zero_position(self) -> Coroutine[Any, Any, MotorState]:
+        """Set motor zero position. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode set zero position command and send request
+        encode_set_zero_position(self._bus, self._slave_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
+
+    # Voltage Protection Parameters
+    def get_under_voltage(self) -> Coroutine[Any, Any, float]:
+        """Get motor under-voltage protection value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (10.0, 3.4E38] volts
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.UV_VALUE)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_under_voltage(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor under-voltage protection value. Returns coroutine to be awaited.
+
+        Args:
+            value: Under-voltage threshold in volts (10.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.UV_VALUE, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_over_voltage(self) -> Coroutine[Any, Any, float]:
+        """Get motor over-voltage protection value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OV_VALUE)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_over_voltage(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor over-voltage protection value. Returns coroutine to be awaited.
+
+        Args:
+            value: Over-voltage threshold in volts
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.OV_VALUE, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Motor Characteristics
+    def get_torque_coefficient(self) -> Coroutine[Any, Any, float]:
+        """Get motor torque coefficient. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [0.0, 3.4E38]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KT_VALUE)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_torque_coefficient(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor torque coefficient. Returns coroutine to be awaited.
+
+        Args:
+            value: Torque coefficient [0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.KT_VALUE, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_gear_efficiency(self) -> Coroutine[Any, Any, float]:
+        """Get gear torque efficiency. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 1.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.GREF)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_gear_efficiency(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set gear torque efficiency. Returns coroutine to be awaited.
+
+        Args:
+            value: Gear efficiency factor (0.0, 1.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.GREF, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Protection Limits
+    def get_over_temperature(self) -> Coroutine[Any, Any, float]:
+        """Get motor over-temperature protection value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [80.0, 200) degrees Celsius
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OT_VALUE)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_over_temperature(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor over-temperature protection value. Returns coroutine to be awaited.
+
+        Args:
+            value: Over-temperature threshold in degrees Celsius [80.0, 200)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.OT_VALUE, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_over_current(self) -> Coroutine[Any, Any, float]:
+        """Get motor over-current protection value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 1.0) normalized current
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.OC_VALUE)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_over_current(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor over-current protection value. Returns coroutine to be awaited.
+
+        Args:
+            value: Over-current threshold as normalized current (0.0, 1.0)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.OC_VALUE, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Mapping Limits
+    def get_position_limit(self) -> Coroutine[Any, Any, float]:
+        """Get motor position mapping maximum value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 3.4E38] radians
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.PMAX)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_position_limit(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor position mapping maximum value. Returns coroutine to be awaited.
+
+        Args:
+            value: Position limit in radians (0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.PMAX, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_velocity_limit(self) -> Coroutine[Any, Any, float]:
+        """Get motor velocity mapping maximum value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 3.4E38] rad/s
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.VMAX)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_velocity_limit(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor velocity mapping maximum value. Returns coroutine to be awaited.
+
+        Args:
+            value: Velocity limit in rad/s (0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.VMAX, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_torque_limit(self) -> Coroutine[Any, Any, float]:
+        """Get motor torque mapping maximum value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 3.4E38] Nm
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.TMAX)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_torque_limit(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor torque mapping maximum value. Returns coroutine to be awaited.
+
+        Args:
+            value: Torque limit in Nm (0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.TMAX, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Control Loop Parameters
+    def get_velocity_kp(self) -> Coroutine[Any, Any, float]:
+        """Get velocity loop proportional gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [0.0, 3.4E38]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KP_ASR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_velocity_kp(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set velocity loop proportional gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Velocity loop Kp [0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.KP_ASR, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_velocity_ki(self) -> Coroutine[Any, Any, float]:
+        """Get velocity loop integral gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [0.0, 3.4E38]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KI_ASR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_velocity_ki(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set velocity loop integral gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Velocity loop Ki [0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.KI_ASR, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_position_kp(self) -> Coroutine[Any, Any, float]:
+        """Get position loop proportional gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [0.0, 3.4E38]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KP_APR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_position_kp(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set position loop proportional gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Position loop Kp [0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.KP_APR, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_position_ki(self) -> Coroutine[Any, Any, float]:
+        """Get position loop integral gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [0.0, 3.4E38]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.KI_APR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_position_ki(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set position loop integral gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Position loop Ki [0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.KI_APR, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Current and Speed Loop Parameters
+    def get_current_loop_bandwidth(self) -> Coroutine[Any, Any, float]:
+        """Get current loop bandwidth. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [100.0, 10000.0] Hz
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.I_BW)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_current_loop_bandwidth(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set current loop bandwidth. Returns coroutine to be awaited.
+
+        Args:
+            value: Current loop bandwidth in Hz [100.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.I_BW, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_damping(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop damping coefficient. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [1.0, 30.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DETA)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_damping(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set speed loop damping coefficient. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop damping coefficient [1.0, 30.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.DETA, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_filter_bandwidth(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop filter bandwidth. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 500.0) Hz
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.V_BW)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_filter_bandwidth(
+        self, value: float
+    ) -> Coroutine[Any, Any, float]:
+        """Set speed loop filter bandwidth. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop filter bandwidth in Hz (0.0, 500.0)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.V_BW, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_current_loop_gain(self) -> Coroutine[Any, Any, float]:
+        """Get current loop gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [100.0, 10000.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.IQ_C1)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_current_loop_gain(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set current loop gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Current loop gain [100.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.IQ_C1, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_speed_loop_gain(self) -> Coroutine[Any, Any, float]:
+        """Get speed loop gain. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 10000.0]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.VL_C1)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_speed_loop_gain(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set speed loop gain. Returns coroutine to be awaited.
+
+        Args:
+            value: Speed loop gain (0.0, 10000.0]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.VL_C1, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Read-Only Motor Information
+    def get_hardware_version(self) -> Coroutine[Any, Any, int]:
+        """Get motor hardware version. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.HW_VER)
+        return decode_register_int(self._bus, self._master_id)
+
+    def get_software_version(self) -> Coroutine[Any, Any, int]:
+        """Get motor software version. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SW_VER)
+        return decode_register_int(self._bus, self._master_id)
+
+    def get_serial_number(self) -> Coroutine[Any, Any, int]:
+        """Get motor serial number. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SN)
+        return decode_register_int(self._bus, self._master_id)
+
+    def get_gear_ratio(self) -> Coroutine[Any, Any, float]:
+        """Get motor gear reduction ratio. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.GR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_damping(self) -> Coroutine[Any, Any, float]:
+        """Get motor damping coefficient. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DAMP)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_inertia(self) -> Coroutine[Any, Any, float]:
+        """Get motor inertia. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.INERTIA)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_pole_pairs(self) -> Coroutine[Any, Any, int]:
+        """Get motor pole pairs (NPP). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.NPP)
+        return decode_register_int(self._bus, self._master_id)
+
+    def get_motor_phase_resistance(self) -> Coroutine[Any, Any, float]:
+        """Get motor phase resistance (Rs). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.RS)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_phase_inductance(self) -> Coroutine[Any, Any, float]:
+        """Get motor phase inductance (Ls). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.LS)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_flux(self) -> Coroutine[Any, Any, float]:
+        """Get motor flux value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.FLUX)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_sub_version(self) -> Coroutine[Any, Any, int]:
+        """Get motor sub-version. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.SUB_VER)
+        return decode_register_int(self._bus, self._master_id)
+
+    # Motion Parameters
+    def get_acceleration(self) -> Coroutine[Any, Any, float]:
+        """Get motor acceleration parameter. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 3.4E38)
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.ACC)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_acceleration(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor acceleration parameter. Returns coroutine to be awaited.
+
+        Args:
+            value: Acceleration parameter (0.0, 3.4E38)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.ACC, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_deceleration(self) -> Coroutine[Any, Any, float]:
+        """Get motor deceleration parameter. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: [-3.4E38, 0.0)
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DEC)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_deceleration(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor deceleration parameter. Returns coroutine to be awaited.
+
+        Args:
+            value: Deceleration parameter [-3.4E38, 0.0)
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.DEC, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_max_speed(self) -> Coroutine[Any, Any, float]:
+        """Get motor maximum speed parameter. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Range: (0.0, 3.4E38] rad/s
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.MAX_SPD)
+        return decode_register_float(self._bus, self._master_id)
+
+    def set_max_speed(self, value: float) -> Coroutine[Any, Any, float]:
+        """Set motor maximum speed parameter. Returns coroutine to be awaited.
+
+        Args:
+            value: Maximum speed in rad/s (0.0, 3.4E38]
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        """
+        encode_write_register_float(
+            self._bus, self._slave_id, RegisterAddress.MAX_SPD, value
+        )
+        return decode_register_float(self._bus, self._master_id)
+
+    # Communication Parameters
+    def get_master_id(self) -> Coroutine[Any, Any, int]:
+        """Get motor feedback ID (Master ID). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Range: [0, 0x7FF]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.MST_ID)
+        return decode_register_int(self._bus, self._master_id)
+
+    async def set_master_id(self, value: int) -> int:
+        """Set motor feedback ID (Master ID) and update internal reference.
+
+        Args:
+            value: Master ID [0, 0x7FF]
+
+        Returns:
+            The new master ID that was set
+
+        """
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.MST_ID, value
+        )
+        # Motor should respond on the NEW master ID after setting it
+        result = await decode_register_int(self._bus, value)
+        # Update our internal master_id to the new value
+        self._master_id = value
+        return result
+
+    def get_slave_id(self) -> Coroutine[Any, Any, int]:
+        """Get motor receive ID (Slave ID). Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Range: [0, 0x7FF]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.ESC_ID)
+        return decode_register_int(self._bus, self._master_id)
+
+    async def set_slave_id(self, value: int) -> int:
+        """Set motor receive ID (Slave ID) and update internal reference.
+
+        Args:
+            value: Slave ID [0, 0x7FF]
+
+        Returns:
+            The new slave ID that was set
+
+        """
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.ESC_ID, value
+        )
+        # Motor responds on master_id to confirm the change
+        result = await decode_register_int(self._bus, self._master_id)
+        # Update our internal slave_id to the new value for future commands
+        self._slave_id = value
+        return result
+
+    def get_timeout(self) -> Coroutine[Any, Any, int]:
+        """Get motor timeout alarm time. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        Range: [0, 2^32-1]
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.TIMEOUT)
+        return decode_register_int(self._bus, self._master_id)
+
+    def set_timeout(self, value: int) -> Coroutine[Any, Any, int]:
+        """Set motor timeout alarm time. Returns coroutine to be awaited.
+
+        Args:
+            value: Timeout value [0, 2^32-1]
+
+        Returns:
+            Coroutine that yields int when awaited
+
+        """
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.TIMEOUT, value
+        )
+        return decode_register_int(self._bus, self._master_id)
+
+    async def get_can_baudrate(self) -> int:
+        """Get CAN baud rate. Returns actual baudrate in bps.
+
+        Returns:
+            Actual baudrate value in bps (100000, 250000, 500000, 750000, or 1000000)
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.CAN_BR)
+        code = await decode_register_int(self._bus, self._master_id)
+        return _CODE_TO_BAUDRATE.get(code, code)  # Return code if unknown
+
+    async def set_can_baudrate(
+        self, value: Literal[100000, 250000, 500000, 750000, 1000000]
+    ) -> int:
+        """Set CAN baud rate. Returns actual baudrate that was set.
+
+        Args:
+            value: CAN baud rate in bps. Valid values:
+                   - 100000 (100 kbps)
+                   - 250000 (250 kbps)
+                   - 500000 (500 kbps)
+                   - 750000 (750 kbps)
+                   - 1000000 (1 Mbps)
+
+        Returns:
+            Actual baudrate value that was set in bps
+
+        """
+        code = _BAUDRATE_TO_CODE[value]
+        encode_write_register_int(
+            self._bus, self._slave_id, RegisterAddress.CAN_BR, code
+        )
+        result_code = await decode_register_int(self._bus, self._master_id)
+        return _CODE_TO_BAUDRATE.get(result_code, result_code)
+
+    # Read-Only Calibration and Position Methods
+    def get_phase_u_offset(self) -> Coroutine[Any, Any, float]:
+        """Get U phase offset calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.U_OFF)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_phase_v_offset(self) -> Coroutine[Any, Any, float]:
+        """Get V phase offset calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.V_OFF)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_compensation_factor_1(self) -> Coroutine[Any, Any, float]:
+        """Get compensation factor 1 calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.K1)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_compensation_factor_2(self) -> Coroutine[Any, Any, float]:
+        """Get compensation factor 2 calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.K2)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_angle_offset(self) -> Coroutine[Any, Any, float]:
+        """Get angle offset calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.M_OFF)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_direction(self) -> Coroutine[Any, Any, float]:
+        """Get motor direction calibration value. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.DIR)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_motor_position(self) -> Coroutine[Any, Any, float]:
+        """Get motor position. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.P_M)
+        return decode_register_float(self._bus, self._master_id)
+
+    def get_output_shaft_position(self) -> Coroutine[Any, Any, float]:
+        """Get output shaft position. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields float when awaited
+
+        Read-Only Parameter
+
+        """
+        encode_read_register(self._bus, self._slave_id, RegisterAddress.XOUT)
+        return decode_register_float(self._bus, self._master_id)
+
+    def save_parameters(self) -> Coroutine[Any, Any, SaveResponse]:
+        """Save motor parameters to flash. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields SaveResponse when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode save parameters command and send request
+        encode_save_parameters(self._bus, self._slave_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_save_response(self._bus, self._master_id)
+
+    def refresh_status(self) -> Coroutine[Any, Any, MotorState]:
+        """Refresh motor status. Returns coroutine to be awaited.
+
+        Returns:
+            Coroutine that yields MotorState when awaited
+
+        Reference: README.md Motor class method pattern lines 334-340
+
+        """
+        # Encode refresh status command and send request
+        encode_refresh_status(self._bus, self._slave_id)
+
+        # Return coroutine from asynchronous decode function
+        return decode_motor_state(self._bus, self._master_id, self._motor_limits)
 
 
 __all__ = [
+    "MOTOR_LIMITS",
     "ControlMode",
+    "MitControlParams",
+    "Motor",
+    "MotorLimits",
     "MotorState",
     "MotorType",
+    "PosForceControlParams",
+    "PosVelControlParams",
     "RegisterAddress",
-    "RegisterResponse",
-    "Response",
-    "StateResponse",
-    "UnknownResponse",
-    "control_mit_command",
-    "control_pos_force_command",
-    "control_pos_vel_command",
-    "control_vel_command",
-    "decode_response",
-    "disable_command",
-    "enable_command",
-    "read_register_command",
-    "refresh_command",
-    "set_control_mode_command",
-    "set_zero_command",
-    "write_register_command",
+    "SaveResponse",
+    "VelControlParams",
+    "detect_motors",
 ]
