@@ -67,6 +67,9 @@ def detect_motors(
         if message.is_error_frame:
             continue
 
+        if not message.is_rx:
+            continue
+
         # The arbitration_id IS the master_id!
         master_id = message.arbitration_id
 
