@@ -4,7 +4,6 @@
     <default class="robot">
       <default class="motor">
         <joint damping="0.25" frictionloss="0.02" />
-        <motor ctrlrange="-10 10" />
       </default>
       <default class="collision">
         <geom
@@ -1539,59 +1538,74 @@
   </equality>
 
   <actuator>
-    <motor name="left_joint1_ctrl" joint="openarm_left_joint1" class="motor" />
-    <motor name="left_joint2_ctrl" joint="openarm_left_joint2" class="motor" />
-    <motor name="left_joint3_ctrl" joint="openarm_left_joint3" class="motor" />
-    <motor name="left_joint4_ctrl" joint="openarm_left_joint4" class="motor" />
-    <motor name="left_joint5_ctrl" joint="openarm_left_joint5" class="motor" />
-    <motor name="left_joint6_ctrl" joint="openarm_left_joint6" class="motor" />
-    <motor name="left_joint7_ctrl" joint="openarm_left_joint7" class="motor" />
-    <motor
+    <position name="left_joint1_ctrl" joint="openarm_left_joint1" ctrlrange="-3.490659 1.3962629999999998" kp="50" kv="1" />
+    <position name="left_joint2_ctrl" joint="openarm_left_joint2" ctrlrange="-3.3161253267948965 0.17453267320510335" kp="30" kv="0.5" />
+    <position name="left_joint3_ctrl" joint="openarm_left_joint3" ctrlrange="-1.570796 1.570796" kp="30" kv="0.5" />
+    <position name="left_joint4_ctrl" joint="openarm_left_joint4" ctrlrange="0.0 2.443461" kp="20" kv="0.3" />
+    <position name="left_joint5_ctrl" joint="openarm_left_joint5" ctrlrange="-1.570796 1.570796" kp="15" kv="0.2" />
+    <position name="left_joint6_ctrl" joint="openarm_left_joint6" ctrlrange="-0.785398 0.785398" kp="10" kv="0.1" />
+    <position name="left_joint7_ctrl" joint="openarm_left_joint7" ctrlrange="-1.570796 1.570796" kp="10" kv="0.1" />
+    <position
       name="left_finger"
       joint="openarm_left_finger_joint1"
-      class="motor"
-      ctrlrange="-0.1 0.1"
+      ctrlrange="0.0 0.044"
+      kp="25"
+      kv="0.5"
     />
-    <motor
+    <position
       name="right_joint1_ctrl"
       joint="openarm_right_joint1"
-      class="motor"
+      ctrlrange="-1.396263 3.490659"
+      kp="50"
+      kv="1"
     />
-    <motor
+    <position
       name="right_joint2_ctrl"
       joint="openarm_right_joint2"
-      class="motor"
+      ctrlrange="-0.17453267320510335 3.3161253267948965"
+      kp="30"
+      kv="0.5"
     />
-    <motor
+    <position
       name="right_joint3_ctrl"
       joint="openarm_right_joint3"
-      class="motor"
+      ctrlrange="-1.570796 1.570796"
+      kp="30"
+      kv="0.5"
     />
-    <motor
+    <position
       name="right_joint4_ctrl"
       joint="openarm_right_joint4"
-      class="motor"
+      ctrlrange="0.0 2.443461"
+      kp="20"
+      kv="0.3"
     />
-    <motor
+    <position
       name="right_joint5_ctrl"
       joint="openarm_right_joint5"
-      class="motor"
+      ctrlrange="-1.570796 1.570796"
+      kp="15"
+      kv="0.2"
     />
-    <motor
+    <position
       name="right_joint6_ctrl"
-      joint="openarm_right_joint6"
-      class="motor"
+      joint="openarm_right_joint6" ctrlrange="-0.785398 0.785398"
+      kp="10"
+      kv="0.1"
     />
-    <motor
+    <position
       name="right_joint7_ctrl"
       joint="openarm_right_joint7"
-      class="motor"
+      ctrlrange="-1.570796 1.570796"
+      kp="10"
+      kv="0.1"
     />
-    <motor
+    <position
       name="right_finger"
       joint="openarm_right_finger_joint1"
-      class="motor"
-      ctrlrange="-0.1 0.1"
+      ctrlrange="0.0 0.044"
+      kp="25"
+      kv="0.5"
     />
   </actuator>
 

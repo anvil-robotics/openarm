@@ -30,9 +30,9 @@ with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
         left_positions[0] = first_joint_angle
         right_positions[0] = first_joint_angle
 
-        # Apply position control to both arms
-        sim.set_left_arm_position_control(left_positions)
-        sim.set_right_arm_position_control(right_positions)
+        # Set target positions for both arms
+        sim.set_left_arm_positions(left_positions)
+        sim.set_right_arm_positions(right_positions)
 
         # Advance physics simulation and update viewer
         sim.step()
