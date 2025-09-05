@@ -16,7 +16,7 @@ import usb.core
 
 from openarm.bus import Bus
 
-from . import Motor, MotorType
+from . import ControlMode, MitControlParams, Motor, MotorType
 from .detect import detect_motors
 
 # ANSI color codes for terminal output
@@ -207,6 +207,20 @@ async def main(args: argparse.Namespace) -> None:
                     bus_initial.append(None)
             all_initial_angles.append(bus_initial)
     
+    # Call teleop or monitor based on flag
+    if args.teleop:
+        await teleop(can_buses, all_bus_motors, all_initial_angles, all_state_results, args)
+    else:
+        await monitor_motors(can_buses, all_bus_motors, all_initial_angles, all_state_results, args)
+
+async def monitor_motors(
+    can_buses: list[can.BusABC],
+    all_bus_motors: list[list[Motor | None]],
+    all_initial_angles: list[list[float | None]],
+    all_state_results: list[list],
+    args: argparse.Namespace,
+) -> None:
+
     # Start continuous monitoring with column display
     mode_str = "(differential)" if args.angle_mode == "differential" else "(absolute)"
     print(f"\nContinuously monitoring motor angles {mode_str} (Ctrl+C to stop):\n")
@@ -278,6 +292,137 @@ async def main(args: argparse.Namespace) -> None:
         print("\nMonitoring stopped.")
 
 
+async def teleop(
+    can_buses: list[can.BusABC],
+    all_bus_motors: list[list[Motor | None]],
+    all_initial_angles: list[list[float | None]],
+    all_state_results: list[list],
+    args: argparse.Namespace,
+) -> None:
+    """Teleoperation mode - enables motors with MIT control."""
+    
+    # Enable motors on all buses except the first one
+    print("\nEnabling motors for teleoperation...")
+    for bus_idx, bus_motors in enumerate(all_bus_motors):
+        if bus_idx == 0:
+            print(f"  Bus {bus_idx + 1}: Keeping motors disabled (leader)")
+            continue
+        
+        print(f"  Bus {bus_idx + 1}: Enabling motors with MIT control")
+        for motor_idx, motor in enumerate(bus_motors):
+            if motor:
+                try:
+                    await motor.enable()
+                    await motor.set_control_mode(ControlMode.MIT)
+                    print(f"    Motor {motor_idx + 1}: Enabled")
+                except Exception as e:
+                    print(f"{RED}    Motor {motor_idx + 1}: Error - {e}{RESET}")
+    
+    # Start teleoperation with monitoring display
+    mode_str = "(teleop)"
+    print(f"\nContinuously monitoring motor angles {mode_str} (Ctrl+C to stop):\n")
+    
+    # Print header with bus labels
+    header = "  Motor"
+    for bus_idx in range(len(can_buses)):
+        header += f"        Bus {bus_idx + 1}     "
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    
+    # Print initial lines for each motor
+    for config in MOTOR_CONFIGS:
+        line = f"  {config.name:<12}"
+        for _ in range(len(can_buses)):
+            line += "  Initializing...  "
+        print(line)
+    
+    # Number of motors (lines to move up)
+    num_motors = len(MOTOR_CONFIGS)
+    
+    # Use disable results for first display
+    all_current_states = all_state_results
+    
+    try:
+        while True:
+            # Move cursor up to the first motor line
+            print(f"\033[{num_motors}A", end="")
+            
+            # Print current states for all buses
+            for motor_idx, config in enumerate(MOTOR_CONFIGS):
+                line = f"\r  {config.name:<12}"
+                for bus_idx in range(len(can_buses)):
+                    state = all_current_states[bus_idx][motor_idx]
+                    initial = all_initial_angles[bus_idx][motor_idx]
+                    if state and initial is not None:
+                        # Calculate differential angle
+                        angle_diff = state.position - initial
+                        angle_deg = angle_diff * 180 / pi
+                        line += f"  {angle_deg:+8.2f}°     "
+                    elif all_bus_motors[bus_idx][motor_idx] is None:
+                        line += "       N/A        "
+                    else:
+                        line += "    No state      "
+                print(line + "\033[K")
+            
+            # Small delay before refresh
+            await asyncio.sleep(0.01)
+            
+            # Read positions from first bus (leader)
+            leader_states = []
+            for motor in all_bus_motors[0]:
+                if motor:
+                    try:
+                        state = await motor.refresh_status()
+                        leader_states.append(state)
+                    except Exception:
+                        leader_states.append(None)
+                else:
+                    leader_states.append(None)
+            
+            # Send MIT position commands to other buses (followers)
+            new_all_states = [leader_states]  # First bus states
+            
+            for bus_idx in range(1, len(can_buses)):
+                bus_states = []
+                for motor_idx, motor in enumerate(all_bus_motors[bus_idx]):
+                    if motor and leader_states[motor_idx]:
+                        try:
+                            # Get leader position
+                            leader_pos = leader_states[motor_idx].position
+                            
+                            # Send MIT control with position tracking
+                            params = MitControlParams(
+                                q=leader_pos,     # Desired position in radians
+                                dq=0,            # Desired velocity
+                                kp=10.0,         # Position gain
+                                kd=0.5,          # Damping gain
+                                tau=0            # Torque feedforward
+                            )
+                            state = await motor.control_mit(params)
+                            bus_states.append(state)
+                        except Exception:
+                            bus_states.append(None)
+                    else:
+                        bus_states.append(None)
+                new_all_states.append(bus_states)
+            
+            all_current_states = new_all_states
+                
+    except KeyboardInterrupt:
+        # Move cursor below all motor lines
+        print(f"\033[{num_motors}B")
+        print("\nTeleoperation stopped.")
+        
+        # Disable all motors on follower buses
+        print("\nDisabling follower motors...")
+        for bus_idx in range(1, len(all_bus_motors)):
+            for motor in all_bus_motors[bus_idx]:
+                if motor:
+                    try:
+                        await motor.disable()
+                    except Exception:
+                        pass
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -297,6 +442,14 @@ def parse_arguments() -> argparse.Namespace:
         choices=["absolute", "differential"],
         default="differential",
         help="Angle display mode: absolute (ignores disable response) or differential (uses disable response as zero, default)",
+    )
+    
+    parser.add_argument(
+        "--teleop",
+        "-t",
+        action="store_true",
+        default=False,
+        help="Enable teleoperation mode (enables motors with MIT control, except first bus)",
     )
 
     return parser.parse_args()
