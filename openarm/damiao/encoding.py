@@ -297,7 +297,7 @@ def encode_control_mit(
     tau_uint = _float_to_uint(params.tau, -tau_max, tau_max, 12)
 
     # Pack data according to MIT control protocol bit layout
-    # Format: '<HHHH' = little-endian 4 unsigned 16-bit values with bit manipulation
+    # Format: '>HHHH' = big-endian 4 unsigned 16-bit values with bit manipulation
     # Reference: DM_CAN.py controlMIT data_buf packing lines 114-121
     # Pack as: q(16-bit), dq(12-bit)|kp_high(4-bit), kp_low(8-bit)|kd_high(8-bit),
     # kd_low(4-bit)|tau(12-bit)
@@ -306,7 +306,7 @@ def encode_control_mit(
     word3 = (kp_uint & 0xFF) | ((kd_uint & 0xFF0) << 4)  # kp_low(8) + kd_high(8)
     word4 = ((kd_uint & 0xF) << 12) | (tau_uint & 0xFFF)  # kd_low(4) + tau(12)
 
-    data = struct.pack("<HHHH", word1, word2, word3, word4)
+    data = struct.pack(">HHHH", word1, word2, word3, word4)
 
     # Send directly to motor's slave ID for MIT control
     # Reference: DM_CAN.py __send_data call with DM_Motor.SlaveID in controlMIT
