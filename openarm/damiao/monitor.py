@@ -180,8 +180,36 @@ async def main(args: argparse.Namespace) -> None:
                 bus_states.append(None)
         all_state_results.append(bus_states)
     
+    # Store initial angles based on angle mode
+    all_initial_angles = []
+    if args.angle_mode == "differential":
+        # Use disable response angles as initial
+        for bus_states in all_state_results:
+            bus_initial = []
+            for state in bus_states:
+                if state:
+                    bus_initial.append(state.position)
+                else:
+                    bus_initial.append(None)
+            all_initial_angles.append(bus_initial)
+    else:  # absolute mode
+        # Get fresh angles for absolute mode (ignoring disable response)
+        for bus_idx, bus_motors in enumerate(all_bus_motors):
+            bus_initial = []
+            for motor in bus_motors:
+                if motor:
+                    try:
+                        state = await motor.refresh_status()
+                        bus_initial.append(state.position if state else None)
+                    except Exception:
+                        bus_initial.append(None)
+                else:
+                    bus_initial.append(None)
+            all_initial_angles.append(bus_initial)
+    
     # Start continuous monitoring with column display
-    print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")
+    mode_str = "(differential)" if args.angle_mode == "differential" else "(absolute)"
+    print(f"\nContinuously monitoring motor angles {mode_str} (Ctrl+C to stop):\n")
     
     # Print header with bus labels
     header = "  Motor"
@@ -213,8 +241,11 @@ async def main(args: argparse.Namespace) -> None:
                 line = f"\r  {config.name:<12}"
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
-                    if state:
-                        angle_deg = state.position * 180 / pi
+                    initial = all_initial_angles[bus_idx][motor_idx]
+                    if state and initial is not None:
+                        # Calculate differential angle
+                        angle_diff = state.position - initial
+                        angle_deg = angle_diff * 180 / pi
                         line += f"  {angle_deg:+8.2f}°     "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
                         line += "       N/A        "
@@ -258,6 +289,14 @@ def parse_arguments() -> argparse.Namespace:
         "-i",
         default="can0",
         help="CAN interface name (default: can0, ignored on Windows/macOS)",
+    )
+    
+    parser.add_argument(
+        "--angle-mode",
+        "-m",
+        choices=["absolute", "differential"],
+        default="differential",
+        help="Angle display mode: absolute (ignores disable response) or differential (uses disable response as zero, default)",
     )
 
     return parser.parse_args()
