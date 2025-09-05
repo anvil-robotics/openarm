@@ -44,11 +44,11 @@ MOTOR_CONFIGS: list[MotorConfig] = [
     MotorConfig("J5", slave_id=0x05, master_id=0x15, type=MotorType.DM4310),
     MotorConfig("J6", slave_id=0x06, master_id=0x16, type=MotorType.DM4310),
     MotorConfig("J7", slave_id=0x07, master_id=0x17, type=MotorType.DM4310),
-    MotorConfig("J8 (Gripper)", slave_id=0x08, master_id=0x18, type=MotorType.DM4310),
+    MotorConfig("J8", slave_id=0x08, master_id=0x18, type=MotorType.DM4310),
 ]
 
 
-def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> can.BusABC | None:
+def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.BusABC]:
     """Create and initialize CAN bus based on platform.
     
     Args:
@@ -56,54 +56,64 @@ def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> can.BusAB
         max_attempts: Maximum connection attempts for USB devices
         
     Returns:
-        Initialized CAN bus or None if failed
+        List of initialized CAN buses (empty if failed)
 
     """
     if platform.system() in ["Windows", "Darwin"]:  # Darwin is macOS
-        print("Searching for USB CAN device...")
-        dev = usb.core.find(idVendor=0x1D50, idProduct=0x606F)
-        if dev is None:
-            print("Error: USB CAN device not found (VID:0x1D50, PID:0x606F)")
-            return None
+        print("Searching for USB CAN devices...")
+        devs = usb.core.find(idVendor=0x1D50, idProduct=0x606F, find_all=True)
+        if not devs:
+            print("Error: No USB CAN devices found (VID:0x1D50, PID:0x606F)")
+            return []
+        
+        devs = list(devs)  # Convert to list
+        print(f"Found {len(devs)} USB CAN device(s)")
 
-        print(f"Found USB CAN device: {dev.product}")
-
-        # Retry connection for USB devices
-        last_error = None
-        for attempt in range(max_attempts):
-            try:
-                can_bus = can.Bus(
-                    interface="gs_usb",
-                    channel=dev.product,
-                    bitrate=1000000,
-                    bus=dev.bus,
-                    address=dev.address
-                )
-                print(f"CAN bus initialized successfully (attempt {attempt + 1})")
-                return can_bus
-            except Exception as e:
-                last_error = e
-                if attempt < max_attempts - 1:
-                    time.sleep(0.1)
-
-        print(f"Failed to initialize CAN bus after {max_attempts} attempts: {last_error}")
-        return None
+        can_buses = []
+        for dev in devs:
+            print(f"Initializing USB CAN device: {dev.product}")
+            
+            # Retry connection for USB devices
+            last_error = None
+            for attempt in range(max_attempts):
+                try:
+                    can_bus = can.Bus(
+                        interface="gs_usb",
+                        channel=dev.product,
+                        bitrate=1000000,
+                        bus=dev.bus,
+                        address=dev.address
+                    )
+                    print(f"  CAN bus initialized successfully (attempt {attempt + 1})")
+                    can_buses.append(can_bus)
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_attempts - 1:
+                        time.sleep(0.1)
+            else:
+                print(f"  Failed to initialize CAN bus after {max_attempts} attempts: {last_error}")
+        
+        return can_buses
 
     # Linux
     print(f"Initializing CAN bus on {interface}...")
     try:
-        return can.Bus(channel=interface, interface="socketcan")
+        return [can.Bus(channel=interface, interface="socketcan")]
     except Exception as e:
         print(f"Failed to initialize socketcan: {e}")
-        return None
+        return []
 
 
 async def main(args: argparse.Namespace) -> None:
     """Main function for the monitor."""
     # Create CAN bus
-    can_bus = create_can_bus(args.interface)
-    if can_bus is None:
+    can_buses = create_can_bus(args.interface)
+    if not can_buses:
         return
+    
+    # Use only the first bus
+    can_bus = can_buses[0]
 
     # First detect which motors are actually connected
     print("\nScanning for motors...")
