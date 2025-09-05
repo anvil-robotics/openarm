@@ -107,112 +107,139 @@ def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.
 
 async def main(args: argparse.Namespace) -> None:
     """Main function for the monitor."""
-    # Create CAN bus
+    # Create CAN buses
     can_buses = create_can_bus(args.interface)
     if not can_buses:
         return
     
-    # Use only the first bus
-    can_bus = can_buses[0]
+    print(f"\nDetected {len(can_buses)} CAN bus(es)")
 
-    # First detect which motors are actually connected
-    print("\nScanning for motors...")
-    slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
-
-    # Detect motors using raw CAN bus
-    detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
-
-    print("\nMotor Status:")
-
-    # Create lookup for detected motors by slave ID
-    detected_lookup = {info.slave_id: info for info in detected}
-
-    # Check all expected motors and their status
-    has_error = False
-    for config in MOTOR_CONFIGS:
-        if config.slave_id not in detected_lookup:
-            # Motor is not detected
-            print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}")
-            has_error = True
-        elif detected_lookup[config.slave_id].master_id != config.master_id:
-            # Motor is detected but master ID doesn't match
-            detected_info = detected_lookup[config.slave_id]
-            print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} {RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, Got 0x{detected_info.master_id:02X}]{RESET}")
-            has_error = True
-        else:
-            # Motor is connected and configured correctly
-            print(f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X})")
-
-    # Exit if any motors have issues
-    if has_error:
-        print(f"\n{RED}Error: Some motors have issues. Please check connections and configuration.{RESET}")
-        return
-
-    # Create Bus wrapper and Motor instances only if all motors are present
-    bus = Bus(can_bus)
-    motors: list[Motor] = [
-        Motor(
-            bus,
-            slave_id=config.slave_id,
-            master_id=config.master_id,
-            motor_type=config.type,
-        )
-        for config in MOTOR_CONFIGS
-    ]
-
-    print(f"\n{GREEN}All {len(motors)} motors detected and initialized{RESET}")
-
-    # Disable all motors
-    print("\nDisabling all motors...")
-    try:
-        state_results = await asyncio.gather(
-            *[motor.disable() for motor in motors]
-        )
-    except Exception as e:
-        print(f"{RED}Error disabling motors: {e}{RESET}")
+    # Detect motors on each bus
+    all_bus_motors = []
+    for bus_idx, can_bus in enumerate(can_buses):
+        print(f"\nScanning for motors on bus {bus_idx + 1}...")
+        slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
+        
+        # Detect motors using raw CAN bus
+        detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
+        
+        print(f"\nBus {bus_idx + 1} Motor Status:")
+        
+        # Create lookup for detected motors by slave ID
+        detected_lookup = {info.slave_id: info for info in detected}
+        
+        # Check all expected motors and their status
+        bus_motors = []
+        for config in MOTOR_CONFIGS:
+            if config.slave_id not in detected_lookup:
+                # Motor is not detected
+                print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}")
+                bus_motors.append(None)
+            elif detected_lookup[config.slave_id].master_id != config.master_id:
+                # Motor is detected but master ID doesn't match
+                detected_info = detected_lookup[config.slave_id]
+                print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} {RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, Got 0x{detected_info.master_id:02X}]{RESET}")
+                bus_motors.append(None)
+            else:
+                # Motor is connected and configured correctly
+                print(f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X})")
+                # Create motor instance
+                bus = Bus(can_bus)
+                motor = Motor(
+                    bus,
+                    slave_id=config.slave_id,
+                    master_id=config.master_id,
+                    motor_type=config.type,
+                )
+                bus_motors.append(motor)
+        
+        all_bus_motors.append(bus_motors)
+    
+    # Count total detected motors
+    total_motors = sum(1 for bus_motors in all_bus_motors for m in bus_motors if m is not None)
+    if total_motors == 0:
+        print(f"\n{RED}Error: No motors detected on any bus.{RESET}")
         return
     
-    # Start continuous monitoring
+    print(f"\n{GREEN}Total {total_motors} motors detected across {len(can_buses)} bus(es){RESET}")
+    
+    # Disable all motors on all buses
+    print("\nDisabling all motors...")
+    all_state_results = []
+    for bus_idx, bus_motors in enumerate(all_bus_motors):
+        bus_states = []
+        for motor in bus_motors:
+            if motor:
+                try:
+                    state = await motor.disable()
+                    bus_states.append(state)
+                except Exception as e:
+                    print(f"{RED}Error disabling motor on bus {bus_idx + 1}: {e}{RESET}")
+                    bus_states.append(None)
+            else:
+                bus_states.append(None)
+        all_state_results.append(bus_states)
+    
+    # Start continuous monitoring with column display
     print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")
+    
+    # Print header with bus labels
+    header = "  Motor"
+    for bus_idx in range(len(can_buses)):
+        header += f"        Bus {bus_idx + 1}     "
+    print(header)
+    print("  " + "-" * (len(header) - 2))
     
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
-        print(f"  {config.name}: Initializing...")
+        line = f"  {config.name:<12}"
+        for _ in range(len(can_buses)):
+            line += "  Initializing...  "
+        print(line)
     
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
     
     # Use disable results for first display
-    current_states = state_results
+    all_current_states = all_state_results
     
     try:
         while True:
             # Move cursor up to the first motor line
             print(f"\033[{num_motors}A", end="")
             
-            # Print current states
-            for config, state in zip(MOTOR_CONFIGS, current_states, strict=False):
-                if state:
-                    angle_deg = state.position * 180 / pi
-                    # Clear line and print updated status
-                    print(f"\r  {config.name}: {angle_deg:+8.2f}°\033[K")
-                else:
-                    print(f"\r  {config.name}: No state received\033[K")
+            # Print current states for all buses
+            for motor_idx, config in enumerate(MOTOR_CONFIGS):
+                line = f"\r  {config.name:<12}"
+                for bus_idx in range(len(can_buses)):
+                    state = all_current_states[bus_idx][motor_idx]
+                    if state:
+                        angle_deg = state.position * 180 / pi
+                        line += f"  {angle_deg:+8.2f}°     "
+                    elif all_bus_motors[bus_idx][motor_idx] is None:
+                        line += "       N/A        "
+                    else:
+                        line += "    No state      "
+                print(line + "\033[K")
             
             # Small delay before refresh
             await asyncio.sleep(0.1)
             
-            # Refresh states
-            try:
-                current_states = await asyncio.gather(
-                    *[motor.refresh_status() for motor in motors]
-                )
-            except Exception as e:
-                # Move to bottom and print error
-                print(f"\n{RED}Error refreshing: {e}{RESET}", end="")
-                # Move back up
-                print(f"\033[{num_motors + 1}A", end="")
-                await asyncio.sleep(1)  # Wait longer on error
+            # Refresh states for all buses
+            new_all_states = []
+            for bus_idx, bus_motors in enumerate(all_bus_motors):
+                bus_states = []
+                for motor in bus_motors:
+                    if motor:
+                        try:
+                            state = await motor.refresh_status()
+                            bus_states.append(state)
+                        except Exception:
+                            bus_states.append(None)
+                    else:
+                        bus_states.append(None)
+                new_all_states.append(bus_states)
+            all_current_states = new_all_states
                 
     except KeyboardInterrupt:
         # Move cursor below all motor lines
