@@ -116,6 +116,8 @@ async def main(args: argparse.Namespace) -> None:
 
     # Detect motors on each bus
     all_bus_motors = []
+    has_missing_motor = False
+    
     for bus_idx, can_bus in enumerate(can_buses):
         print(f"\nScanning for motors on bus {bus_idx + 1}...")
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
@@ -135,11 +137,13 @@ async def main(args: argparse.Namespace) -> None:
                 # Motor is not detected
                 print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}")
                 bus_motors.append(None)
+                has_missing_motor = True
             elif detected_lookup[config.slave_id].master_id != config.master_id:
                 # Motor is detected but master ID doesn't match
                 detected_info = detected_lookup[config.slave_id]
                 print(f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} {RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, Got 0x{detected_info.master_id:02X}]{RESET}")
                 bus_motors.append(None)
+                has_missing_motor = True
             else:
                 # Motor is connected and configured correctly
                 print(f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} (Master: 0x{config.master_id:02X})")
@@ -154,6 +158,11 @@ async def main(args: argparse.Namespace) -> None:
                 bus_motors.append(motor)
         
         all_bus_motors.append(bus_motors)
+    
+    # Exit if any motor is missing
+    if has_missing_motor:
+        print(f"\n{RED}Error: Not all motors are detected or configured correctly. Exiting.{RESET}")
+        return
     
     # Count total detected motors
     total_motors = sum(1 for bus_motors in all_bus_motors for m in bus_motors if m is not None)
@@ -180,50 +189,21 @@ async def main(args: argparse.Namespace) -> None:
                 bus_states.append(None)
         all_state_results.append(bus_states)
     
-    # Store initial angles based on angle mode
-    all_initial_angles = []
-    if args.angle_mode == "differential":
-        # Use disable response angles as initial
-        for bus_states in all_state_results:
-            bus_initial = []
-            for state in bus_states:
-                if state:
-                    bus_initial.append(state.position)
-                else:
-                    bus_initial.append(None)
-            all_initial_angles.append(bus_initial)
-    else:  # absolute mode
-        # Get fresh angles for absolute mode (ignoring disable response)
-        for bus_idx, bus_motors in enumerate(all_bus_motors):
-            bus_initial = []
-            for motor in bus_motors:
-                if motor:
-                    try:
-                        state = await motor.refresh_status()
-                        bus_initial.append(state.position if state else None)
-                    except Exception:
-                        bus_initial.append(None)
-                else:
-                    bus_initial.append(None)
-            all_initial_angles.append(bus_initial)
-    
     # Call teleop or monitor based on flag
     if args.teleop:
-        await teleop(can_buses, all_bus_motors, all_initial_angles, all_state_results, args)
+        await teleop(can_buses, all_bus_motors, all_state_results, args)
     else:
-        await monitor_motors(can_buses, all_bus_motors, all_initial_angles, all_state_results, args)
+        await monitor_motors(can_buses, all_bus_motors, all_state_results, args)
 
 async def monitor_motors(
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
-    all_initial_angles: list[list[float | None]],
     all_state_results: list[list],
     args: argparse.Namespace,
 ) -> None:
 
     # Start continuous monitoring with column display
-    mode_str = "(differential)" if args.angle_mode == "differential" else "(absolute)"
-    print(f"\nContinuously monitoring motor angles {mode_str} (Ctrl+C to stop):\n")
+    print(f"\nContinuously monitoring motor angles (Ctrl+C to stop):\n")
     
     # Print header with bus labels
     header = "  Motor"
@@ -255,11 +235,9 @@ async def monitor_motors(
                 line = f"\r  {config.name:<12}"
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
-                    initial = all_initial_angles[bus_idx][motor_idx]
-                    if state and initial is not None:
-                        # Calculate differential angle
-                        angle_diff = state.position - initial
-                        angle_deg = angle_diff * 180 / pi
+                    if state:
+                        # Show absolute angle
+                        angle_deg = state.position * 180 / pi
                         line += f"  {angle_deg:+8.2f}°     "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
                         line += "       N/A        "
@@ -295,7 +273,6 @@ async def monitor_motors(
 async def teleop(
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
-    all_initial_angles: list[list[float | None]],
     all_state_results: list[list],
     args: argparse.Namespace,
 ) -> None:
@@ -319,8 +296,7 @@ async def teleop(
                     print(f"{RED}    Motor {motor_idx + 1}: Error - {e}{RESET}")
     
     # Start teleoperation with monitoring display
-    mode_str = "(teleop)"
-    print(f"\nContinuously monitoring motor angles {mode_str} (Ctrl+C to stop):\n")
+    print(f"\nTeleoperation mode (Ctrl+C to stop):\n")
     
     # Print header with bus labels
     header = "  Motor"
@@ -352,11 +328,9 @@ async def teleop(
                 line = f"\r  {config.name:<12}"
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
-                    initial = all_initial_angles[bus_idx][motor_idx]
-                    if state and initial is not None:
-                        # Calculate differential angle
-                        angle_diff = state.position - initial
-                        angle_deg = angle_diff * 180 / pi
+                    if state:
+                        # Show absolute angle
+                        angle_deg = state.position * 180 / pi
                         line += f"  {angle_deg:+8.2f}°     "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
                         line += "       N/A        "
@@ -395,7 +369,7 @@ async def teleop(
                                 q=leader_pos,     # Desired position in radians
                                 dq=0,            # Desired velocity
                                 kp=10.0,         # Position gain
-                                kd=0.5,          # Damping gain
+                                kd=10,          # Damping gain
                                 tau=0            # Torque feedforward
                             )
                             state = await motor.control_mit(params)
@@ -434,14 +408,6 @@ def parse_arguments() -> argparse.Namespace:
         "-i",
         default="can0",
         help="CAN interface name (default: can0, ignored on Windows/macOS)",
-    )
-    
-    parser.add_argument(
-        "--angle-mode",
-        "-m",
-        choices=["absolute", "differential"],
-        default="differential",
-        help="Angle display mode: absolute (ignores disable response) or differential (uses disable response as zero, default)",
     )
     
     parser.add_argument(

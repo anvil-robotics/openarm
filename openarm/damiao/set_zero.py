@@ -156,25 +156,22 @@ async def main(args: argparse.Namespace) -> None:
                 motor_type=config.type,
             )
             
+            # Process motor - disable and set zero
+            print(f"  {config.name} (ID 0x{config.slave_id:02X}): ", end="")
+            
             # Disable motor first (required for setting zero)
-            print(f"\n{config.name} (ID 0x{config.slave_id:02X}):")
-            print(f"  Disabling motor...")
             try:
                 await motor.disable()
-                print(f"  {GREEN}✓{RESET} Motor disabled")
             except Exception as e:
-                print(f"  {RED}✗ Failed to disable motor: {e}{RESET}")
+                print(f"{RED}✗ Failed to disable: {e}{RESET}")
                 continue
             
             # Set zero position
-            print(f"  Setting zero position...")
             try:
-                state = await motor.set_zero_position()
-                print(f"  {GREEN}✓{RESET} Zero position set successfully")
-                if state:
-                    print(f"  Position: {state.position:.3f} rad")
+                await motor.set_zero_position()
+                print(f"{GREEN}✓ Zero set{RESET}")
             except Exception as e:
-                print(f"  {RED}✗ Failed to set zero: {e}{RESET}")
+                print(f"{RED}✗ Failed to set zero: {e}{RESET}")
                 continue
     
     print(f"\n{'='*50}")
