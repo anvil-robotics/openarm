@@ -16,7 +16,7 @@ import usb.core
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor, MotorType
+from . import ControlMode, MitControlParams, Motor, MotorType, PosVelControlParams
 from .detect import detect_motors
 
 # ANSI color codes for terminal output
@@ -48,7 +48,7 @@ MOTOR_CONFIGS: list[MotorConfig] = [
 ]
 
 
-def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.BusABC]:
+def create_can_bus(interface: str = "can0", max_attempts: int = 30) -> list[can.BusABC]:
     """Create and initialize CAN bus based on platform.
     
     Args:
@@ -278,19 +278,23 @@ async def teleop(
 ) -> None:
     """Teleoperation mode - enables motors with MIT control."""
     
+    # Determine control mode
+    control_mode = ControlMode.POS_VEL if args.control == "posvel" else ControlMode.MIT
+    control_mode_str = "Position-Velocity" if args.control == "posvel" else "MIT"
+    
     # Enable motors on all buses except the first one
-    print("\nEnabling motors for teleoperation...")
+    print(f"\nEnabling motors for teleoperation with {control_mode_str} control...")
     for bus_idx, bus_motors in enumerate(all_bus_motors):
         if bus_idx == 0:
             print(f"  Bus {bus_idx + 1}: Keeping motors disabled (leader)")
             continue
         
-        print(f"  Bus {bus_idx + 1}: Enabling motors with MIT control")
+        print(f"  Bus {bus_idx + 1}: Enabling motors with {control_mode_str} control")
         for motor_idx, motor in enumerate(bus_motors):
             if motor:
                 try:
                     await motor.enable()
-                    await motor.set_control_mode(ControlMode.MIT)
+                    await motor.set_control_mode(control_mode)
                     print(f"    Motor {motor_idx + 1}: Enabled")
                 except Exception as e:
                     print(f"{RED}    Motor {motor_idx + 1}: Error - {e}{RESET}")
@@ -364,15 +368,24 @@ async def teleop(
                             # Get leader position
                             leader_pos = leader_states[motor_idx].position
                             
-                            # Send MIT control with position tracking
-                            params = MitControlParams(
-                                q=leader_pos,     # Desired position in radians
-                                dq=0,            # Desired velocity
-                                kp=10.0,         # Position gain
-                                kd=10,          # Damping gain
-                                tau=0            # Torque feedforward
-                            )
-                            state = await motor.control_mit(params)
+                            # Send control command based on mode
+                            if args.control == "posvel":
+                                # Position-Velocity control
+                                params = PosVelControlParams(
+                                    position=leader_pos,
+                                    velocity=1
+                                )
+                                state = await motor.control_pos_vel(params)
+                            else:
+                                # MIT control
+                                params = MitControlParams(
+                                    q=leader_pos,     # Desired position in radians
+                                    dq=0,            # Desired velocity
+                                    kp=10.0,         # Position gain
+                                    kd=10,           # Damping gain
+                                    tau=0            # Torque feedforward
+                                )
+                                state = await motor.control_mit(params)
                             bus_states.append(state)
                         except Exception:
                             bus_states.append(None)
@@ -415,7 +428,15 @@ def parse_arguments() -> argparse.Namespace:
         "-t",
         action="store_true",
         default=False,
-        help="Enable teleoperation mode (enables motors with MIT control, except first bus)",
+        help="Enable teleoperation mode (enables motors with control, except first bus)",
+    )
+    
+    parser.add_argument(
+        "--control",
+        "-c",
+        choices=["posvel", "mit"],
+        default="posvel",
+        help="Control mode for teleoperation: posvel (position-velocity, default) or mit",
     )
 
     return parser.parse_args()
