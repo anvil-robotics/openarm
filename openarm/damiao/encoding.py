@@ -338,9 +338,9 @@ async def decode_motor_state(
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
-    # Format: '<BHHBB' = little-endian: slave_id(B) + packed_data(2*H) + temps(2*B)
+    # Format: '>BHHBB' = big-endian: slave_id(B) + packed_data(2*H) + temps(2*B)
     # Reference: Motor state format in DM_CAN.py __process_packet CMD==0x11 handling
-    slave_id, word1, word2, t_mos, t_rotor = struct.unpack("<BHHBB", message.data[:7])
+    slave_id, word1, word2, t_mos, t_rotor = struct.unpack(">BHHBB", message.data[:7])
 
     # Extract packed motor state values using bit operations
     # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
