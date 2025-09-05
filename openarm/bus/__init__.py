@@ -51,9 +51,7 @@ class Bus:
         if timeout is None:
             while True:
                 msg = self.bus.recv()
-                if msg.is_error_frame:
-                    continue
-                if not msg.is_rx:
+                if msg.is_error_frame or not msg.is_rx:
                     continue
                 if msg.arbitration_id == arbitration_id:
                     return msg
@@ -64,9 +62,7 @@ class Bus:
                 msg = self.bus.recv(timeout)
                 if msg is None:
                     return None
-                if msg.is_error_frame:
-                    continue
-                if not msg.is_rx:
+                if msg.is_error_frame or not msg.is_rx:
                     continue
                 if msg.arbitration_id == arbitration_id:
                     return msg
