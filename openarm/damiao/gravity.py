@@ -26,14 +26,31 @@ class MuJoCoKDL:
         # Disable all joint limit
         self.model.jnt_limited[:] = 0
 
-    def compute_inverse_dynamics(self, q: np.ndarray, qdot: np.ndarray, qdotdot: np.ndarray) -> np.ndarray:
+    def compute_inverse_dynamics(self, q: np.ndarray, qdot: np.ndarray, qdotdot: np.ndarray, side: str = 'left') -> np.ndarray:
         assert len(q) == len(qdot) == len(qdotdot)
+        assert side in ['left', 'right'], "side must be 'left' or 'right'"
+        
         length = len(q)
-        self.data.qpos[:length] = q
-        self.data.qvel[:length] = qdot
-        self.data.qacc[:length] = qdotdot
+        
+        if side == 'left':
+            # Left joints: indices 0-7 (8 motors)
+            joint_indices = slice(0, length)
+        else:  # right
+            # Right joints: indices 9-16 (8 motors), but input q is still 0-7
+            joint_indices = slice(9, 9 + length)
+        
+        # Clear all joint states first
+        self.data.qpos[:] = 0
+        self.data.qvel[:] = 0
+        self.data.qacc[:] = 0
+        
+        # Set joint states for the specified side
+        self.data.qpos[joint_indices] = q
+        self.data.qvel[joint_indices] = qdot
+        self.data.qacc[joint_indices] = qdotdot
+        
         mujoco.mj_inverse(self.model, self.data)
-        return self.data.qfrc_inverse[:length]
+        return self.data.qfrc_inverse[joint_indices]
 
 
 class GravityCompensator:
@@ -58,7 +75,8 @@ class GravityCompensator:
         gravity_torques = self.kdl.compute_inverse_dynamics(
             q, 
             np.zeros(q.shape), 
-            np.zeros(q.shape)
+            np.zeros(q.shape),
+            side=position
         )
         
         # Apply tuning factors
