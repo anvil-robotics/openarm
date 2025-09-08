@@ -210,6 +210,8 @@ async def teleop(
     # Parse master-slave relationships from --follow arguments
     slave_to_master = {}  # Maps slave channel to master channel
     slave_mirror_mode = {}  # Maps slave channel to mirror mode (True/False)
+    master_positions_map = {}  # Maps master channel to position (left/right)
+    slave_positions_map = {}  # Maps slave channel to position (left/right)
     channel_to_idx = {}    # Maps channel name to bus index
     
     # Build channel to index mapping
@@ -237,16 +239,17 @@ async def teleop(
         for follow_spec in args.follow:
             try:
                 parts = follow_spec.split(':')
-                if len(parts) == 2:
-                    # Standard follow: MASTER:SLAVE
-                    master_ch, slave_ch = parts
-                    is_mirror = False
-                elif len(parts) == 3 and parts[2] == 'mirror':
-                    # Mirror follow: MASTER:SLAVE:mirror
-                    master_ch, slave_ch = parts[0], parts[1]
-                    is_mirror = True
-                else:
+                if len(parts) != 4:
                     raise ValueError(f"Invalid format: {follow_spec}")
+                
+                # Parse MASTER:POSITION:SLAVE:POSITION
+                master_ch, master_pos, slave_ch, slave_pos = parts
+                
+                # Validate positions
+                if master_pos not in ["left", "right"]:
+                    raise ValueError(f"Invalid master position: {master_pos}")
+                if slave_pos not in ["left", "right"]:
+                    raise ValueError(f"Invalid slave position: {slave_pos}")
                 
                 # Validate channels exist
                 if master_ch not in channel_to_idx:
@@ -261,11 +264,17 @@ async def teleop(
                     print(f"{RED}Error: Slave '{slave_ch}' already follows '{slave_to_master[slave_ch]}'{RESET}")
                     return
                 
+                # Automatically determine mirror mode based on position matching
+                is_mirror = (master_pos != slave_pos)
+                
                 slave_to_master[slave_ch] = master_ch
                 slave_mirror_mode[slave_ch] = is_mirror
+                master_positions_map[master_ch] = master_pos
+                slave_positions_map[slave_ch] = slave_pos
                 
-            except ValueError:
-                print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:SLAVE or MASTER:SLAVE:mirror{RESET}")
+            except ValueError as e:
+                print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}")
+                print(f"{RED}Example: --follow can0:left:can1:right (mirror) or --follow can0:left:can1:left (no mirror){RESET}")
                 return
         
         # Validate no channel is both master and slave
@@ -293,9 +302,13 @@ async def teleop(
         slaves = []
         for s, m in slave_to_master.items():
             if m == master:
-                slave_str = f"{s}(mirror)" if slave_mirror_mode.get(s, False) else s
+                master_pos = master_positions_map.get(m, "?")
+                slave_pos = slave_positions_map.get(s, "?")
+                mirror_str = "(mirror)" if slave_mirror_mode.get(s, False) else ""
+                slave_str = f"{s}:{slave_pos}{mirror_str}"
                 slaves.append(slave_str)
-        print(f"  Master: {master} -> Slaves: {', '.join(slaves)}")
+        master_pos = master_positions_map.get(master, "?")
+        print(f"  Master: {master}:{master_pos} -> Slaves: {', '.join(slaves)}")
     
     # Reverse mapping to get channel from index
     idx_to_channel = {v: k for k, v in channel_to_idx.items()}
@@ -494,7 +507,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--follow",
         action="append",
-        help="Define follower mappings as MASTER:SLAVE or MASTER:SLAVE:mirror (e.g., --follow can0:can1 --follow can0:can2:mirror)",
+        help="Define follower mappings as MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'. "
+             "Mirror mode is automatic when positions differ. "
+             "(e.g., --follow can0:left:can1:right for mirror, --follow can0:left:can1:left for no mirror)",
     )
 
     return parser.parse_args()
