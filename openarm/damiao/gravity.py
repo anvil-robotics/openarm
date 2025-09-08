@@ -4,6 +4,21 @@ import sys
 import mujoco
 import numpy as np
 
+# Platform-specific imports for keyboard input
+try:
+    import select
+    import termios
+    import tty
+    HAS_TERMIOS = True
+except ImportError:
+    HAS_TERMIOS = False
+    
+try:
+    import msvcrt
+    HAS_MSVCRT = True
+except ImportError:
+    HAS_MSVCRT = False
+
 from openarm.bus import Bus
 from openarm.damiao import ControlMode, MitControlParams, Motor
 from openarm.damiao.can_buses import create_can_bus
@@ -170,9 +185,32 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
+def check_keyboard_input():
+    """Check if a key has been pressed (non-blocking)."""
+    if HAS_MSVCRT:
+        # Windows
+        if msvcrt.kbhit():
+            return msvcrt.getch().decode('utf-8', errors='ignore').lower()
+    elif HAS_TERMIOS:
+        # Unix/Linux/Mac
+        if select.select([sys.stdin], [], [], 0)[0]:
+            return sys.stdin.read(1).lower()
+    return None
+
+
 async def _main(args: argparse.Namespace, selected_buses: list) -> None:
     """Main gravity compensation loop for all selected buses with their positions."""
     print("Setting up gravity compensation...")
+    
+    # Set terminal to raw mode for immediate key detection (Unix/Linux/Mac)
+    old_settings = None
+    if HAS_TERMIOS:
+        try:
+            old_settings = termios.tcgetattr(sys.stdin)
+            tty.setraw(sys.stdin.fileno())
+        except:
+            # Might fail in some environments (e.g., when piped)
+            pass
     
     # Initialize gravity compensator
     gravity_comp = GravityCompensator()
@@ -239,10 +277,14 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> None:
         print(f"Bus {bus_idx + 1}: {active_count} active motors")
     
     print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
-    print("Press Ctrl+C to stop")
+    print("Press 'Q' to stop")
     
     try:
         while True:
+            # Check for 'Q' key press
+            key = check_keyboard_input()
+            if key == 'q':
+                break
             # Process each bus
             for bus_idx, (motors, current_positions, arm_position) in enumerate(
                 zip(all_motors, all_positions, all_arm_positions)
@@ -308,10 +350,21 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> None:
             # Small delay
             await asyncio.sleep(0.01)
 
-    except KeyboardInterrupt:
         print("\nStopping gravity compensation...")
-
-        # Disable all motors on all buses
+        
+    except Exception as e:
+        print(f"\nError in gravity compensation loop: {e}")
+        
+    finally:
+        # Restore terminal settings (Unix/Linux/Mac)
+        if old_settings is not None and HAS_TERMIOS:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            except:
+                pass
+        
+        # SAFETY: Disable all motors to avoid unwanted movements
+        print("Disabling all motors for safety...")
         for bus_idx, motors in enumerate(all_motors):
             for motor in motors:
                 if motor is not None:
@@ -319,12 +372,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> None:
                         await motor.disable()
                     except Exception:
                         pass
-    
-    finally:
-        # SAFETY: we need to disable motors to avoid unwanted movements
-        for motor in all_motors:
-            if motor is not None:
-                await motor.disable()
 
 
 def run() -> None:
