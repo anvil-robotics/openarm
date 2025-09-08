@@ -96,7 +96,8 @@ def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.
     # Linux
     print(f"Initializing CAN bus on {interface}...")
     try:
-        return [can.Bus(channel=interface, interface="socketcan")]
+        configs = can.detect_available_configs("socketcan")
+        return [can.Bus(channel=config["channel"], interface=config["interface"]) for config in configs]
     except Exception as e:
         print(f"Failed to initialize socketcan: {e}")
         return []
