@@ -32,10 +32,17 @@ async def main(args: argparse.Namespace) -> None:
     
     print(f"\nDetected {len(can_buses)} CAN bus(es)")
 
+    try:
+        return await run(args, can_buses)
+    finally:
+        for bus in can_buses:
+            bus.shutdown()
+
+async def run(args: argparse.Namespace, can_buses: list[can.BusABC]):
     # Detect motors on each bus
     all_bus_motors = []
     has_missing_motor = False
-    
+
     for bus_idx, can_bus in enumerate(can_buses):
         print(f"\nScanning for motors on bus {bus_idx + 1}...")
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
