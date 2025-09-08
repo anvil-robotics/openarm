@@ -203,16 +203,15 @@ async def main():
             q = np.array(active_positions)
             gravity_torques = kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
 
-            # TODO: Tune the torques scaling
-            gravity_torques[0] *= 0
-            gravity_torques[1] *= 0
-            gravity_torques[2] *= 0
-            gravity_torques[3] *= 0
-            gravity_torques[4] *= 0
-            gravity_torques[5] *= 0
-            gravity_torques[6] *= 0
+            # Tune the torques scaling
+            gravity_torques[0] *= 0.8
+            gravity_torques[1] *= 0.8
+            gravity_torques[2] *= 1
+            gravity_torques[3] *= 1
+            gravity_torques[4] *= 1
+            gravity_torques[5] *= 1
+            gravity_torques[6] *= 1
             gravity_torques[7] *= 0
-            # gravity_torques[8] *= 0
 
             # Prepare MIT control commands for all motors
             control_tasks = []
