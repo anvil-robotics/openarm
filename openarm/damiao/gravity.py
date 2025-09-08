@@ -81,16 +81,34 @@ def parse_arguments() -> argparse.Namespace:
 
 async def main(args: argparse.Namespace) -> None:
     """Main entry point with proper shutdown handling."""
-    # Create CAN buses based on args
+    # Create all CAN buses
+    all_can_buses = create_can_bus()
+    
+    if not all_can_buses:
+        print("Error: No CAN buses detected.")
+        return
+    
+    # Filter buses based on args if specified
     if args.port:
-        # Use specified ports
+        # Use only specified ports
         can_buses = []
-        for port in args.port:
-            buses = create_can_bus(port)
-            can_buses.extend(buses)
+        for bus in all_can_buses:
+            # Check if this bus matches any requested port
+            bus_channel = str(bus.channel_info) if hasattr(bus, 'channel_info') else str(bus.channel)
+            for port in args.port:
+                if port in bus_channel:
+                    can_buses.append(bus)
+                    break
+        
+        if not can_buses:
+            print(f"Error: None of the specified ports {args.port} were found.")
+            # Shutdown all buses before returning
+            for bus in all_can_buses:
+                bus.shutdown()
+            return
     else:
-        # Auto-detect all buses
-        can_buses = create_can_bus()
+        # Use all detected buses
+        can_buses = all_can_buses
     
     if not can_buses:
         print("Error: No CAN buses detected.")
@@ -105,8 +123,8 @@ async def main(args: argparse.Namespace) -> None:
                 print(f"\nProcessing bus {bus_idx + 1} of {len(can_buses)}")
             await _main(args, can_bus)
     finally:
-        # Proper shutdown of all CAN buses
-        for bus in can_buses:
+        # Proper shutdown of ALL CAN buses (not just the selected ones)
+        for bus in all_can_buses:
             bus.shutdown()
 
 
