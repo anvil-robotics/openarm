@@ -209,6 +209,7 @@ async def teleop(
     
     # Parse master-slave relationships from --follow arguments
     slave_to_master = {}  # Maps slave channel to master channel
+    slave_mirror_mode = {}  # Maps slave channel to mirror mode (True/False)
     channel_to_idx = {}    # Maps channel name to bus index
     
     # Build channel to index mapping
@@ -235,7 +236,17 @@ async def teleop(
     if args.follow:
         for follow_spec in args.follow:
             try:
-                master_ch, slave_ch = follow_spec.split(':')
+                parts = follow_spec.split(':')
+                if len(parts) == 2:
+                    # Standard follow: MASTER:SLAVE
+                    master_ch, slave_ch = parts
+                    is_mirror = False
+                elif len(parts) == 3 and parts[2] == 'mirror':
+                    # Mirror follow: MASTER:SLAVE:mirror
+                    master_ch, slave_ch = parts[0], parts[1]
+                    is_mirror = True
+                else:
+                    raise ValueError(f"Invalid format: {follow_spec}")
                 
                 # Validate channels exist
                 if master_ch not in channel_to_idx:
@@ -251,9 +262,10 @@ async def teleop(
                     return
                 
                 slave_to_master[slave_ch] = master_ch
+                slave_mirror_mode[slave_ch] = is_mirror
                 
             except ValueError:
-                print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:SLAVE{RESET}")
+                print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:SLAVE or MASTER:SLAVE:mirror{RESET}")
                 return
         
         # Validate no channel is both master and slave
@@ -270,6 +282,7 @@ async def teleop(
             master_ch = channels[0]
             for slave_ch in channels[1:]:
                 slave_to_master[slave_ch] = master_ch
+                slave_mirror_mode[slave_ch] = False  # Default: no mirror
     
     # Determine master and slave buses
     slave_channels = set(slave_to_master.keys())
@@ -277,7 +290,11 @@ async def teleop(
     
     print(f"\nMaster-Slave Configuration:")
     for master in sorted(master_channels):
-        slaves = [s for s, m in slave_to_master.items() if m == master]
+        slaves = []
+        for s, m in slave_to_master.items():
+            if m == master:
+                slave_str = f"{s}(mirror)" if slave_mirror_mode.get(s, False) else s
+                slaves.append(slave_str)
         print(f"  Master: {master} -> Slaves: {', '.join(slaves)}")
     
     # Reverse mapping to get channel from index
@@ -309,7 +326,12 @@ async def teleop(
     header = "  Motor"
     for bus_idx in range(len(can_buses)):
         channel = idx_to_channel.get(bus_idx, f"bus{bus_idx}")
-        role = "S" if channel in slave_channels else "M"
+        if channel in slave_channels:
+            # Slave: show S* for mirror mode, S for normal
+            role = "S*" if slave_mirror_mode.get(channel, False) else "S"
+        else:
+            # Master
+            role = "M"
         header += f"   {channel}({role})   "
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -388,6 +410,10 @@ async def teleop(
                             try:
                                 # Get master position
                                 master_pos = master_states[motor_idx].position
+                                
+                                # Apply mirror if enabled for this slave AND motor supports it
+                                if slave_mirror_mode.get(channel, False) and MOTOR_CONFIGS[motor_idx].mirror:
+                                    master_pos = -master_pos
                                 
                                 # Send control command based on mode
                                 if args.control == "posvel":
@@ -468,7 +494,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--follow",
         action="append",
-        help="Define follower mappings as MASTER:SLAVE (e.g., --follow can0:can1 --follow can3:can2)",
+        help="Define follower mappings as MASTER:SLAVE or MASTER:SLAVE:mirror (e.g., --follow can0:can1 --follow can0:can2:mirror)",
     )
 
     return parser.parse_args()
