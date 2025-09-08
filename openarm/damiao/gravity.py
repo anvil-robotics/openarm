@@ -180,7 +180,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> None:
     # Setup motors on all selected buses
     print("Testing motor connectivity on all selected buses...")
     
-    all_motors = []  # List of motor lists for each bus
+    all_motors: list[Motor|None] = []  # List of motor lists for each bus
     all_positions = []  # List of position lists for each bus
     all_arm_positions = []  # List of "left" or "right" for each bus
     
@@ -319,6 +319,12 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> None:
                         await motor.disable()
                     except Exception:
                         pass
+    
+    finally:
+        # SAFETY: we need to disable motors to avoid unwanted movements
+        for motor in all_motors:
+            if motor is not None:
+                await motor.disable()
 
 
 def run() -> None:
