@@ -85,12 +85,6 @@ class GravityCompensator:
             for torque, factor in zip(gravity_torques, self.tuning_factors)
         ]
         
-        # Apply negation for right arm on mirror motors
-        if position == "right":
-            for i in range(min(len(tuned_torques), len(MOTOR_CONFIGS))):
-                if MOTOR_CONFIGS[i].mirror:
-                    tuned_torques[i] = -tuned_torques[i]
-        
         return tuned_torques
 
 
