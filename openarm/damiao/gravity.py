@@ -1,4 +1,6 @@
+import argparse
 import asyncio
+import sys
 import mujoco
 import numpy as np
 
@@ -63,22 +65,65 @@ class GravityCompensator:
         ]
 
 
-async def setup_motors():
-    """Setup and initialize motors, return list of motor objects and their current positions."""
-    can_buses = create_can_bus()
+def parse_arguments() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Gravity compensation for Damiao motors"
+    )
+    
+    parser.add_argument(
+        "--port",
+        action="append",
+        help="CAN ports to use (e.g., --port can0 --port can1). If not specified, auto-detects all ports.",
+    )
+    
+    return parser.parse_args()
+
+async def main(args: argparse.Namespace) -> None:
+    """Main entry point with proper shutdown handling."""
+    # Create CAN buses based on args
+    if args.port:
+        # Use specified ports
+        can_buses = []
+        for port in args.port:
+            buses = create_can_bus(port)
+            can_buses.extend(buses)
+    else:
+        # Auto-detect all buses
+        can_buses = create_can_bus()
+    
     if not can_buses:
-        return None, None
+        print("Error: No CAN buses detected.")
+        return
+    
+    print(f"\nDetected {len(can_buses)} CAN bus(es)")
+    
+    try:
+        # Run gravity compensation for each bus
+        for bus_idx, can_bus in enumerate(can_buses):
+            if len(can_buses) > 1:
+                print(f"\nProcessing bus {bus_idx + 1} of {len(can_buses)}")
+            await _main(args, can_bus)
+    finally:
+        # Proper shutdown of all CAN buses
+        for bus in can_buses:
+            bus.shutdown()
 
-    print(f"Detected {len(can_buses)} CAN bus(es)")
 
-    # Use first bus for simplicity
-    can_bus = can_buses[0]
+async def _main(args: argparse.Namespace, can_bus) -> None:
+    """Main gravity compensation loop for a single bus."""
+    print("Setting up gravity compensation...")
+    
+    # Initialize gravity compensator
+    gravity_comp = GravityCompensator()
+    
+    # Setup motors inline
     print("Testing motor connectivity...")
-
+    
     motors = []
     current_positions = []
     all_motors_active = True
-
+    
     for config in MOTOR_CONFIGS:
         print(f"Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
         bus = Bus(can_bus)
@@ -88,23 +133,22 @@ async def setup_motors():
             master_id=config.master_id,
             motor_type=config.type,
         )
-
-        # Try to enable and get status with timeout
+        
         try:
-            await asyncio.wait_for(motor.enable(), timeout=1.0)
+            # Enable and get initial state from enable response
+            state = await asyncio.wait_for(motor.enable(), timeout=1.0)
             await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
-            state = await asyncio.wait_for(motor.refresh_status(), timeout=1.0)
-
+            
             if state:
                 motors.append(motor)
-                current_positions.append(state.position)
+                current_positions.append(state.position)  # Use position from enable response
                 print(f"  Motor {config.name} active - Initial position: {state.position:.3f} rad")
             else:
                 print(f"  Motor {config.name} inactive - No state received")
                 all_motors_active = False
                 motors.append(None)
                 current_positions.append(0.0)
-
+                
         except asyncio.TimeoutError:
             print(f"  Motor {config.name} inactive - Timeout")
             all_motors_active = False
@@ -115,8 +159,8 @@ async def setup_motors():
             all_motors_active = False
             motors.append(None)
             current_positions.append(0.0)
-
-    # If any motor is inactive, disable all motors and return None
+    
+    # If any motor is inactive, disable all motors and return
     if not all_motors_active:
         print("\nError: Not all motors are active. Disabling all motors...")
         for motor in motors:
@@ -125,26 +169,11 @@ async def setup_motors():
                     await motor.disable()
                 except Exception:
                     pass
-        return None, None
-
-    return motors, current_positions
-
-async def main():
-    """Main gravity compensation loop."""
-    print("Setting up gravity compensation...")
-
-    # Initialize gravity compensator (reuses MuJoCo model)
-    gravity_comp = GravityCompensator()
-
-    # Setup motors and get initial positions
-    motors, current_positions = await setup_motors()
-    if not motors:
-        print("Cannot proceed: Not all motors are available")
         return
-
+    
     print(f"\nStarting gravity compensation loop with {sum(1 for m in motors if m)} motors...")
     print("Press Ctrl+C to stop")
-
+    
     try:
         while True:
             # Get current joint positions (only for active motors)
@@ -220,5 +249,20 @@ async def main():
                 except Exception:
                     pass
 
+
+def run() -> None:
+    """Entry point for the gravity compensation script."""
+    args = parse_arguments()
+    
+    try:
+        asyncio.run(main(args))
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()
