@@ -116,141 +116,144 @@ async def main(args: argparse.Namespace) -> None:
         print(f"Using all {len(can_buses)} bus(es)")
     
     try:
-        # Run gravity compensation for each bus
-        for bus_idx, can_bus in enumerate(can_buses):
-            if len(can_buses) > 1:
-                print(f"\nProcessing bus {bus_idx + 1} of {len(can_buses)}")
-            await _main(args, can_bus)
+        # Run gravity compensation for all selected buses together
+        await _main(args, can_buses)
     finally:
         # Proper shutdown of ALL CAN buses (not just the selected ones)
         for bus in all_can_buses:
             bus.shutdown()
 
 
-async def _main(args: argparse.Namespace, can_bus) -> None:
-    """Main gravity compensation loop for a single bus."""
+async def _main(args: argparse.Namespace, can_buses: list) -> None:
+    """Main gravity compensation loop for all selected buses."""
     print("Setting up gravity compensation...")
     
     # Initialize gravity compensator
     gravity_comp = GravityCompensator()
     
-    # Setup motors inline
-    print("Testing motor connectivity...")
+    # Setup motors on all selected buses
+    print("Testing motor connectivity on all selected buses...")
     
-    motors = []
-    current_positions = []
-    all_motors_active = True
+    all_motors = []  # List of motor lists for each bus
+    all_positions = []  # List of position lists for each bus
     
-    for config in MOTOR_CONFIGS:
-        print(f"Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
-        bus = Bus(can_bus)
-        motor = Motor(
-            bus,
-            slave_id=config.slave_id,
-            master_id=config.master_id,
-            motor_type=config.type,
-        )
+    for bus_idx, can_bus in enumerate(can_buses):
+        print(f"\nBus {bus_idx + 1}/{len(can_buses)}:")
+        motors = []
+        current_positions = []
         
-        try:
-            # Enable and get initial state from enable response
-            state = await asyncio.wait_for(motor.enable(), timeout=1.0)
-            await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
+        for config in MOTOR_CONFIGS:
+            print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
+            bus = Bus(can_bus)
+            motor = Motor(
+                bus,
+                slave_id=config.slave_id,
+                master_id=config.master_id,
+                motor_type=config.type,
+            )
             
-            if state:
-                motors.append(motor)
-                current_positions.append(state.position)  # Use position from enable response
-                print(f"  Motor {config.name} active - Initial position: {state.position:.3f} rad")
-            else:
-                print(f"  Motor {config.name} inactive - No state received")
-                all_motors_active = False
+            try:
+                # Enable and get initial state from enable response
+                state = await asyncio.wait_for(motor.enable(), timeout=1.0)
+                await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
+                
+                if state:
+                    motors.append(motor)
+                    current_positions.append(state.position)  # Use position from enable response
+                    print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
+                else:
+                    print(f"    Motor {config.name} inactive - No state received")
+                    motors.append(None)
+                    current_positions.append(0.0)
+                    
+            except asyncio.TimeoutError:
+                print(f"    Motor {config.name} inactive - Timeout")
                 motors.append(None)
                 current_positions.append(0.0)
-                
-        except asyncio.TimeoutError:
-            print(f"  Motor {config.name} inactive - Timeout")
-            all_motors_active = False
-            motors.append(None)
-            current_positions.append(0.0)
-        except Exception as e:
-            print(f"  Motor {config.name} inactive - Error: {e}")
-            all_motors_active = False
-            motors.append(None)
-            current_positions.append(0.0)
+            except Exception as e:
+                print(f"    Motor {config.name} inactive - Error: {e}")
+                motors.append(None)
+                current_positions.append(0.0)
+        
+        all_motors.append(motors)
+        all_positions.append(current_positions)
     
-    # If any motor is inactive, disable all motors and return
-    if not all_motors_active:
-        print("\nError: Not all motors are active. Disabling all motors...")
-        for motor in motors:
-            if motor is not None:
-                try:
-                    await motor.disable()
-                except Exception:
-                    pass
+    # Count total active motors across all buses
+    total_active_motors = sum(1 for bus_motors in all_motors for m in bus_motors if m is not None)
+    
+    if total_active_motors == 0:
+        print("\nError: No active motors found on any bus.")
         return
     
-    print(f"\nStarting gravity compensation loop with {sum(1 for m in motors if m)} motors...")
+    # Report active motors per bus
+    for bus_idx, motors in enumerate(all_motors):
+        active_count = sum(1 for m in motors if m is not None)
+        print(f"Bus {bus_idx + 1}: {active_count} active motors")
+    
+    print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
     print("Press Ctrl+C to stop")
     
     try:
         while True:
-            # Get current joint positions (only for active motors)
-            active_positions = []
-            active_indices = []
-            for i, (motor, pos) in enumerate(zip(motors, current_positions)):
-                if motor is not None:
-                    active_positions.append(pos)
-                    active_indices.append(i)
+            # Process each bus
+            for bus_idx, (motors, current_positions) in enumerate(zip(all_motors, all_positions)):
+                # Get current joint positions (only for active motors)
+                active_positions = []
+                active_indices = []
+                for i, (motor, pos) in enumerate(zip(motors, current_positions)):
+                    if motor is not None:
+                        active_positions.append(pos)
+                        active_indices.append(i)
 
-            if not active_positions:
-                print("No active motors")
-                break
+                if not active_positions:
+                    continue  # Skip this bus if no active motors
 
-            # Compute gravity compensation torques using the new function
-            tuned_torques = gravity_comp.compute(active_positions)
+                # Compute gravity compensation torques using the new function
+                tuned_torques = gravity_comp.compute(active_positions)
 
-            # Prepare MIT control commands for all motors
-            control_tasks = []
-            motor_indices = []
+                # Prepare MIT control commands for all motors
+                control_tasks = []
+                motor_indices = []
 
-            for motor_idx, motor in enumerate(motors):
-                if motor is not None:
+                for motor_idx, motor in enumerate(motors):
+                    if motor is not None:
+                        try:
+                            # Find the torque for this motor
+                            active_idx = active_indices.index(motor_idx)
+                            torque = tuned_torques[active_idx]
+
+                            # MIT control with torque only (position, velocity, gains set to 0)
+                            params = MitControlParams(
+                                q=0,        # No position control
+                                dq=0,       # No velocity control
+                                kp=0,       # No position gain
+                                kd=0,       # No damping gain
+                                tau=torque  # Pure torque control
+                            )
+
+                            # Create control task
+                            task = motor.control_mit(params)
+                            control_tasks.append(task)
+                            motor_indices.append(motor_idx)
+
+                        except Exception as e:
+                            print(f"Error preparing control for motor {motor_idx} on bus {bus_idx + 1}: {e}")
+
+                # Send all MIT control commands at once and await all responses
+                if control_tasks:
                     try:
-                        # Find the torque for this motor
-                        active_idx = active_indices.index(motor_idx)
-                        torque = tuned_torques[active_idx]
+                        states = await asyncio.gather(*control_tasks, return_exceptions=True)
 
-                        # MIT control with torque only (position, velocity, gains set to 0)
-                        params = MitControlParams(
-                            q=0,        # No position control
-                            dq=0,       # No velocity control
-                            kp=0,       # No position gain
-                            kd=0,       # No damping gain
-                            tau=torque  # Pure torque control
-                        )
-
-                        # Create control task
-                        task = motor.control_mit(params)
-                        control_tasks.append(task)
-                        motor_indices.append(motor_idx)
+                        # Update positions from all motor responses
+                        for i, state in enumerate(states):
+                            motor_idx = motor_indices[i]
+                            if isinstance(state, Exception):
+                                print(f"Error controlling motor {motor_idx} on bus {bus_idx + 1}: {state}")
+                            elif state:
+                                all_positions[bus_idx][motor_idx] = state.position
 
                     except Exception as e:
-                        print(f"Error preparing control for motor {motor_idx}: {e}")
-
-            # Send all MIT control commands at once and await all responses
-            if control_tasks:
-                try:
-                    states = await asyncio.gather(*control_tasks, return_exceptions=True)
-
-                    # Update positions from all motor responses
-                    for i, state in enumerate(states):
-                        motor_idx = motor_indices[i]
-                        if isinstance(state, Exception):
-                            print(f"Error controlling motor {motor_idx}: {state}")
-                        elif state:
-                            current_positions[motor_idx] = state.position
-
-                except Exception as e:
-                    print(f"Error in batch control: {e}")
+                        print(f"Error in batch control on bus {bus_idx + 1}: {e}")
 
             # Small delay
             await asyncio.sleep(0.01)
@@ -258,13 +261,14 @@ async def _main(args: argparse.Namespace, can_bus) -> None:
     except KeyboardInterrupt:
         print("\nStopping gravity compensation...")
 
-        # Disable all motors
-        for motor in motors:
-            if motor is not None:
-                try:
-                    await motor.disable()
-                except Exception:
-                    pass
+        # Disable all motors on all buses
+        for bus_idx, motors in enumerate(all_motors):
+            for motor in motors:
+                if motor is not None:
+                    try:
+                        await motor.disable()
+                    except Exception:
+                        pass
 
 
 def run() -> None:
