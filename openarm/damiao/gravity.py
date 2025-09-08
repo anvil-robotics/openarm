@@ -257,7 +257,71 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
     """
     print("Setting up gravity compensation...")
     
-    # Set terminal to raw mode for immediate key detection (Unix/Linux/Mac)
+    # Initialize gravity compensator
+    gravity_comp = GravityCompensator()
+    
+    # Setup motors on all selected buses
+    print("Testing motor connectivity on all selected buses...")
+    
+    # Create Arm objects for each bus
+    arms: list[Arm] = []
+    
+    for bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
+        print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
+        
+        # Create new Arm object
+        arm = Arm(position=arm_position, can_bus=can_bus)
+        
+        for config in MOTOR_CONFIGS:
+            print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
+            bus = Bus(can_bus)
+            motor = Motor(
+                bus,
+                slave_id=config.slave_id,
+                master_id=config.master_id,
+                motor_type=config.type,
+            )
+            
+            try:
+                # Enable and get initial state from enable response
+                state = await asyncio.wait_for(motor.enable(), timeout=1.0)
+                await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
+                
+                if state:
+                    arm.motors.append(motor)
+                    arm.positions.append(state.position)  # Use position from enable response
+                    print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
+                else:
+                    print(f"    Motor {config.name} inactive - No state received")
+                    arm.motors.append(None)
+                    arm.positions.append(0.0)
+                    
+            except asyncio.TimeoutError:
+                print(f"    Motor {config.name} inactive - Timeout")
+                arm.motors.append(None)
+                arm.positions.append(0.0)
+            except Exception as e:
+                print(f"    Motor {config.name} inactive - Error: {e}")
+                arm.motors.append(None)
+                arm.positions.append(0.0)
+        
+        arms.append(arm)
+    
+    # Count total active motors across all arms
+    total_active_motors = sum(arm.active_count for arm in arms)
+    
+    if total_active_motors == 0:
+        print("\nError: No active motors found on any bus.")
+        return []
+    
+    # Report active motors per arm
+    for arm_idx, arm in enumerate(arms):
+        print(f"Arm {arm_idx + 1} ({arm.position}): {arm.active_count} active motors")
+    
+    print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
+    print("Press 'Q' to stop")
+    
+    # NOW set terminal to raw mode for keyboard detection during the main loop
     old_settings = None
     raw_mode = False
     if HAS_TERMIOS:
@@ -277,70 +341,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
             sys.stdout.flush()
         else:
             print(msg)
-    
-    # Initialize gravity compensator
-    gravity_comp = GravityCompensator()
-    
-    # Setup motors on all selected buses
-    raw_print("Testing motor connectivity on all selected buses...")
-    
-    # Create Arm objects for each bus
-    arms: list[Arm] = []
-    
-    for bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
-        raw_print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
-        
-        # Create new Arm object
-        arm = Arm(position=arm_position, can_bus=can_bus)
-        
-        for config in MOTOR_CONFIGS:
-            raw_print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
-            bus = Bus(can_bus)
-            motor = Motor(
-                bus,
-                slave_id=config.slave_id,
-                master_id=config.master_id,
-                motor_type=config.type,
-            )
-            
-            try:
-                # Enable and get initial state from enable response
-                state = await asyncio.wait_for(motor.enable(), timeout=1.0)
-                await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
-                
-                if state:
-                    arm.motors.append(motor)
-                    arm.positions.append(state.position)  # Use position from enable response
-                    raw_print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
-                else:
-                    raw_print(f"    Motor {config.name} inactive - No state received")
-                    arm.motors.append(None)
-                    arm.positions.append(0.0)
-                    
-            except asyncio.TimeoutError:
-                raw_print(f"    Motor {config.name} inactive - Timeout")
-                arm.motors.append(None)
-                arm.positions.append(0.0)
-            except Exception as e:
-                raw_print(f"    Motor {config.name} inactive - Error: {e}")
-                arm.motors.append(None)
-                arm.positions.append(0.0)
-        
-        arms.append(arm)
-    
-    # Count total active motors across all arms
-    total_active_motors = sum(arm.active_count for arm in arms)
-    
-    if total_active_motors == 0:
-        raw_print("\nError: No active motors found on any bus.")
-        return []
-    
-    # Report active motors per arm
-    for arm_idx, arm in enumerate(arms):
-        raw_print(f"Arm {arm_idx + 1} ({arm.position}): {arm.active_count} active motors")
-    
-    raw_print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
-    raw_print("Press 'Q' to stop")
     
     try:
         while True:
