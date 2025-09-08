@@ -5,8 +5,10 @@ This script disables all Damiao motors and displays their current angles.
 
 import argparse
 import asyncio
+from dataclasses import dataclass, field
 from math import pi
 import sys
+from typing import Optional
 
 import can
 
@@ -21,6 +23,64 @@ from .detect import detect_motors
 RED = "\033[91m"
 GREEN = "\033[92m"
 RESET = "\033[0m"
+
+
+@dataclass
+class Arm:
+    """Represents a single robotic arm with its motors and configuration."""
+    position: str  # "left" or "right"  
+    can_bus: can.BusABC  # The CAN bus for this arm
+    channel: str  # Channel name (e.g., "can0", "can1")
+    motors: list[Optional[Motor]] = field(default_factory=list)
+    states: list = field(default_factory=list)  # Current states for each motor
+    is_master: bool = False  # Whether this arm is a master
+    is_slave: bool = False  # Whether this arm is a slave
+    mirror_mode: bool = False  # Whether mirror mode is enabled (for slaves)
+    follows: Optional[str] = None  # Channel name of master (for slaves)
+    
+    @property
+    def active_motors(self) -> list[Motor]:
+        """Get list of active (non-None) motors."""
+        return [m for m in self.motors if m is not None]
+    
+    @property
+    def active_count(self) -> int:
+        """Count of active motors."""
+        return len(self.active_motors)
+    
+    async def disable_all_motors(self) -> None:
+        """Safely disable all active motors."""
+        for motor in self.motors:
+            if motor is not None:
+                try:
+                    await motor.disable()
+                except Exception:
+                    pass
+    
+    async def enable_all_motors(self, control_mode: ControlMode) -> None:
+        """Enable all active motors with specified control mode."""
+        for idx, motor in enumerate(self.motors):
+            if motor is not None:
+                try:
+                    await motor.enable()
+                    await motor.set_control_mode(control_mode)
+                    print(f"    Motor {idx + 1}: Enabled")
+                except Exception as e:
+                    print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")
+    
+    async def refresh_states(self) -> None:
+        """Refresh states for all motors."""
+        new_states = []
+        for motor in self.motors:
+            if motor:
+                try:
+                    state = await motor.refresh_status()
+                    new_states.append(state)
+                except Exception:
+                    new_states.append(None)
+            else:
+                new_states.append(None)
+        self.states = new_states
 
 
 async def main(args: argparse.Namespace) -> None:
@@ -207,15 +267,11 @@ async def teleop(
     control_mode = ControlMode.POS_VEL if args.control == "posvel" else ControlMode.MIT
     control_mode_str = "Position-Velocity" if args.control == "posvel" else "MIT"
     
-    # Parse master-slave relationships from --follow arguments
-    slave_to_master = {}  # Maps slave channel to master channel
-    slave_mirror_mode = {}  # Maps slave channel to mirror mode (True/False)
-    master_positions_map = {}  # Maps master channel to position (left/right)
-    slave_positions_map = {}  # Maps slave channel to position (left/right)
-    channel_to_idx = {}    # Maps channel name to bus index
+    # Create Arm objects for each bus
+    arms: list[Arm] = []
+    channel_to_arm = {}  # Maps channel name to Arm object
     
-    # Build channel to index mapping
-    for bus_idx, can_bus in enumerate(can_buses):
+    for bus_idx, (can_bus, bus_motors, bus_states) in enumerate(zip(can_buses, all_bus_motors, all_state_results)):
         # Get channel info from the bus
         channel_info = str(can_bus.channel_info) if hasattr(can_bus, 'channel_info') else str(can_bus.channel)
         # Extract channel name (e.g., "can0" from various formats)
@@ -231,7 +287,16 @@ async def teleop(
             # For USB devices, use the product name or bus index
             channel_name = channel_info.split()[-1] if channel_info else f"bus{bus_idx}"
         
-        channel_to_idx[channel_name] = bus_idx
+        # Create Arm object
+        arm = Arm(
+            position="unknown",  # Will be set based on --follow arguments
+            can_bus=can_bus,
+            channel=channel_name,
+            motors=bus_motors,
+            states=bus_states
+        )
+        arms.append(arm)
+        channel_to_arm[channel_name] = arm
         print(f"Bus {bus_idx + 1}: Channel '{channel_name}'")
     
     # Parse --follow arguments if provided
@@ -252,25 +317,31 @@ async def teleop(
                     raise ValueError(f"Invalid slave position: {slave_pos}")
                 
                 # Validate channels exist
-                if master_ch not in channel_to_idx:
+                if master_ch not in channel_to_arm:
                     print(f"{RED}Error: Master channel '{master_ch}' not found{RESET}")
                     return
-                if slave_ch not in channel_to_idx:
+                if slave_ch not in channel_to_arm:
                     print(f"{RED}Error: Slave channel '{slave_ch}' not found{RESET}")
                     return
                 
+                # Get Arm objects
+                master_arm = channel_to_arm[master_ch]
+                slave_arm = channel_to_arm[slave_ch]
+                
                 # Check for conflicts
-                if slave_ch in slave_to_master:
-                    print(f"{RED}Error: Slave '{slave_ch}' already follows '{slave_to_master[slave_ch]}'{RESET}")
+                if slave_arm.is_slave:
+                    print(f"{RED}Error: Slave '{slave_ch}' already follows '{slave_arm.follows}'{RESET}")
                     return
                 
-                # Automatically determine mirror mode based on position matching
-                is_mirror = (master_pos != slave_pos)
+                # Configure master arm
+                master_arm.position = master_pos
+                master_arm.is_master = True
                 
-                slave_to_master[slave_ch] = master_ch
-                slave_mirror_mode[slave_ch] = is_mirror
-                master_positions_map[master_ch] = master_pos
-                slave_positions_map[slave_ch] = slave_pos
+                # Configure slave arm
+                slave_arm.position = slave_pos
+                slave_arm.is_slave = True
+                slave_arm.follows = master_ch
+                slave_arm.mirror_mode = (master_pos != slave_pos)  # Auto-detect mirror mode
                 
             except ValueError as e:
                 print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}")
@@ -278,202 +349,152 @@ async def teleop(
                 return
         
         # Validate no channel is both master and slave
-        masters = set(slave_to_master.values())
-        slaves = set(slave_to_master.keys())
-        overlap = masters & slaves
-        if overlap:
-            print(f"{RED}Error: Channel(s) {overlap} cannot be both master and slave{RESET}")
-            return
+        for arm in arms:
+            if arm.is_master and arm.is_slave:
+                print(f"{RED}Error: Channel {arm.channel} cannot be both master and slave{RESET}")
+                return
     else:
-        # Default behavior: first bus is master, others are slaves
-        channels = list(channel_to_idx.keys())
-        if len(channels) > 1:
-            master_ch = channels[0]
-            for slave_ch in channels[1:]:
-                slave_to_master[slave_ch] = master_ch
-                slave_mirror_mode[slave_ch] = False  # Default: no mirror
-    
-    # Determine master and slave buses
-    slave_channels = set(slave_to_master.keys())
-    master_channels = set(slave_to_master.values())
+        # Default behavior: first arm is master, others are slaves  
+        if len(arms) > 1:
+            master_arm = arms[0]
+            master_arm.is_master = True
+            master_arm.position = "left"  # Default position
+            
+            for slave_arm in arms[1:]:
+                slave_arm.is_slave = True
+                slave_arm.follows = master_arm.channel
+                slave_arm.mirror_mode = False  # Default: no mirror
+                slave_arm.position = "left"  # Default position
     
     print(f"\nMaster-Slave Configuration:")
-    for master in sorted(master_channels):
+    # Group slaves by master
+    for master_arm in [arm for arm in arms if arm.is_master]:
         slaves = []
-        for s, m in slave_to_master.items():
-            if m == master:
-                master_pos = master_positions_map.get(m, "?")
-                slave_pos = slave_positions_map.get(s, "?")
-                mirror_str = "(mirror)" if slave_mirror_mode.get(s, False) else ""
-                slave_str = f"{s}:{slave_pos}{mirror_str}"
-                slaves.append(slave_str)
-        master_pos = master_positions_map.get(master, "?")
-        print(f"  Master: {master}:{master_pos} -> Slaves: {', '.join(slaves)}")
+        for slave_arm in [arm for arm in arms if arm.is_slave and arm.follows == master_arm.channel]:
+            mirror_str = "(mirror)" if slave_arm.mirror_mode else ""
+            slave_str = f"{slave_arm.channel}:{slave_arm.position}{mirror_str}"
+            slaves.append(slave_str)
+        if slaves:
+            print(f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}")
     
-    # Reverse mapping to get channel from index
-    idx_to_channel = {v: k for k, v in channel_to_idx.items()}
-    
-    # Enable motors on slave buses only
+    # Enable motors on slave arms only
     print(f"\nEnabling motors for teleoperation with {control_mode_str} control...")
-    for bus_idx, bus_motors in enumerate(all_bus_motors):
-        channel = idx_to_channel.get(bus_idx, f"bus{bus_idx}")
-        
-        if channel not in slave_channels:
-            print(f"  Bus {bus_idx + 1} ({channel}): Keeping motors disabled (master)")
-            continue
-        
-        print(f"  Bus {bus_idx + 1} ({channel}): Enabling motors with {control_mode_str} control")
-        for motor_idx, motor in enumerate(bus_motors):
-            if motor:
-                try:
-                    await motor.enable()
-                    await motor.set_control_mode(control_mode)
-                    print(f"    Motor {motor_idx + 1}: Enabled")
-                except Exception as e:
-                    print(f"{RED}    Motor {motor_idx + 1}: Error - {e}{RESET}")
+    for arm in arms:
+        if arm.is_slave:
+            print(f"  {arm.channel}: Enabling motors with {control_mode_str} control")
+            await arm.enable_all_motors(control_mode)
+        else:
+            print(f"  {arm.channel}: Keeping motors disabled (master)")
     
     # Start teleoperation with monitoring display
     print(f"\nTeleoperation mode (Ctrl+C to stop):\n")
     
     # Print header with bus labels showing channel names and roles
     header = "  Motor"
-    for bus_idx in range(len(can_buses)):
-        channel = idx_to_channel.get(bus_idx, f"bus{bus_idx}")
-        if channel in slave_channels:
+    for arm in arms:
+        if arm.is_slave:
             # Slave: show S* for mirror mode, S for normal
-            role = "S*" if slave_mirror_mode.get(channel, False) else "S"
+            role = "S*" if arm.mirror_mode else "S"
         else:
             # Master
             role = "M"
-        header += f"   {channel}({role})   "
+        header += f"   {arm.channel}({role})   "
     print(header)
     print("  " + "-" * (len(header) - 2))
     
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
-        for _ in range(len(can_buses)):
+        for _ in arms:
             line += "  Initializing...  "
         print(line)
     
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
     
-    # Use disable results for first display
-    all_current_states = all_state_results
-    
     try:
         while True:
             # Move cursor up to the first motor line
             print(f"\033[{num_motors}A", end="")
             
-            # Print current states for all buses
+            # Print current states for all arms
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
                 line = f"\r  {config.name:<12}"
-                for bus_idx in range(len(can_buses)):
-                    state = all_current_states[bus_idx][motor_idx]
-                    if state:
-                        # Show absolute angle
-                        angle_deg = state.position * 180 / pi
-                        line += f"  {angle_deg:+8.2f}°     "
-                    elif all_bus_motors[bus_idx][motor_idx] is None:
-                        line += "       N/A        "
+                for arm in arms:
+                    if motor_idx < len(arm.states):
+                        state = arm.states[motor_idx]
+                        if state:
+                            # Show absolute angle
+                            angle_deg = state.position * 180 / pi
+                            line += f"  {angle_deg:+8.2f}°     "
+                        elif motor_idx >= len(arm.motors) or arm.motors[motor_idx] is None:
+                            line += "       N/A        "
+                        else:
+                            line += "    No state      "
                     else:
-                        line += "    No state      "
+                        line += "       N/A        "
                 print(line + "\033[K")
             
             # Small delay before refresh
             await asyncio.sleep(0.01)
             
-            # Read positions from all master buses
-            master_positions = {}  # channel -> states
-            new_all_states = []
+            # Refresh master arms first
+            master_arms = {arm.channel: arm for arm in arms if arm.is_master}
+            for master_arm in master_arms.values():
+                await master_arm.refresh_states()
             
-            for bus_idx, bus_motors in enumerate(all_bus_motors):
-                channel = idx_to_channel.get(bus_idx, f"bus{bus_idx}")
-                
-                if channel in master_channels:
-                    # This is a master bus - read positions
-                    bus_states = []
-                    for motor in bus_motors:
-                        if motor:
-                            try:
-                                state = await motor.refresh_status()
-                                bus_states.append(state)
-                            except Exception:
-                                bus_states.append(None)
-                        else:
-                            bus_states.append(None)
-                    master_positions[channel] = bus_states
-                    new_all_states.append(bus_states)
+            # Update slave arms based on their masters
+            for slave_arm in [arm for arm in arms if arm.is_slave]:
+                if slave_arm.follows and slave_arm.follows in master_arms:
+                    master_arm = master_arms[slave_arm.follows]
                     
-                elif channel in slave_channels:
-                    # This is a slave bus - follow its master
-                    master_channel = slave_to_master[channel]
-                    master_states = master_positions.get(master_channel)
-                    
-                    if master_states is None:
-                        # Master hasn't been read yet or doesn't exist
-                        new_all_states.append([None] * len(bus_motors))
-                        continue
-                    
-                    bus_states = []
-                    for motor_idx, motor in enumerate(bus_motors):
-                        if motor and motor_idx < len(master_states) and master_states[motor_idx]:
+                    # Control each motor
+                    new_states = []
+                    for motor_idx, (slave_motor, master_state) in enumerate(zip(slave_arm.motors, master_arm.states)):
+                        if slave_motor and master_state:
                             try:
                                 # Get master position
-                                master_pos = master_states[motor_idx].position
+                                position = master_state.position
                                 
                                 # Apply mirror if enabled for this slave AND motor supports it
-                                if slave_mirror_mode.get(channel, False) and MOTOR_CONFIGS[motor_idx].mirror:
-                                    master_pos = -master_pos
+                                if slave_arm.mirror_mode and motor_idx < len(MOTOR_CONFIGS) and MOTOR_CONFIGS[motor_idx].mirror:
+                                    position = -position
                                 
                                 # Send control command based on mode
                                 if args.control == "posvel":
                                     # Position-Velocity control
                                     params = PosVelControlParams(
-                                        position=master_pos,
+                                        position=position,
                                         velocity=1
                                     )
-                                    state = await motor.control_pos_vel(params)
+                                    state = await slave_motor.control_pos_vel(params)
                                 else:
                                     # MIT control
                                     params = MitControlParams(
-                                        q=master_pos,     # Desired position in radians
+                                        q=position,      # Desired position in radians
                                         dq=0,            # Desired velocity
                                         kp=10.0,         # Position gain
                                         kd=10,           # Damping gain
                                         tau=0            # Torque feedforward
                                     )
-                                    state = await motor.control_mit(params)
-                                bus_states.append(state)
+                                    state = await slave_motor.control_mit(params)
+                                new_states.append(state)
                             except Exception:
-                                bus_states.append(None)
+                                new_states.append(None)
                         else:
-                            bus_states.append(None)
-                    new_all_states.append(bus_states)
-                else:
-                    # Shouldn't happen, but handle gracefully
-                    new_all_states.append([None] * len(bus_motors))
-            
-            all_current_states = new_all_states
+                            new_states.append(None)
+                    slave_arm.states = new_states
                 
     except KeyboardInterrupt:
         # Move cursor below all motor lines
         print(f"\033[{num_motors}B")
         print("\nTeleoperation stopped.")
         
-        # Disable all motors on slave buses
+        # Disable all motors on slave arms
         print("\nDisabling slave motors...")
-        for bus_idx, bus_motors in enumerate(all_bus_motors):
-            channel = idx_to_channel.get(bus_idx, f"bus{bus_idx}")
-            if channel in slave_channels:
-                for motor in bus_motors:
-                    if motor:
-                        try:
-                            await motor.disable()
-                        except Exception:
-                            pass
+        for arm in arms:
+            if arm.is_slave:
+                await arm.disable_all_motors()
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
