@@ -259,31 +259,42 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
     
     # Set terminal to raw mode for immediate key detection (Unix/Linux/Mac)
     old_settings = None
+    raw_mode = False
     if HAS_TERMIOS:
         try:
             old_settings = termios.tcgetattr(sys.stdin)
             tty.setraw(sys.stdin.fileno())
+            raw_mode = True
         except:
             # Might fail in some environments (e.g., when piped)
             pass
+    
+    # Helper function for printing in raw mode
+    def raw_print(msg: str = "") -> None:
+        """Print with proper line endings in raw mode."""
+        if raw_mode:
+            print(msg.replace('\n', '\r\n'), end='')
+            sys.stdout.flush()
+        else:
+            print(msg)
     
     # Initialize gravity compensator
     gravity_comp = GravityCompensator()
     
     # Setup motors on all selected buses
-    print("Testing motor connectivity on all selected buses...")
+    raw_print("Testing motor connectivity on all selected buses...")
     
     # Create Arm objects for each bus
     arms: list[Arm] = []
     
     for bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
-        print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
+        raw_print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
         
         # Create new Arm object
         arm = Arm(position=arm_position, can_bus=can_bus)
         
         for config in MOTOR_CONFIGS:
-            print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
+            raw_print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
             bus = Bus(can_bus)
             motor = Motor(
                 bus,
@@ -300,18 +311,18 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
                 if state:
                     arm.motors.append(motor)
                     arm.positions.append(state.position)  # Use position from enable response
-                    print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
+                    raw_print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
                 else:
-                    print(f"    Motor {config.name} inactive - No state received")
+                    raw_print(f"    Motor {config.name} inactive - No state received")
                     arm.motors.append(None)
                     arm.positions.append(0.0)
                     
             except asyncio.TimeoutError:
-                print(f"    Motor {config.name} inactive - Timeout")
+                raw_print(f"    Motor {config.name} inactive - Timeout")
                 arm.motors.append(None)
                 arm.positions.append(0.0)
             except Exception as e:
-                print(f"    Motor {config.name} inactive - Error: {e}")
+                raw_print(f"    Motor {config.name} inactive - Error: {e}")
                 arm.motors.append(None)
                 arm.positions.append(0.0)
         
@@ -321,15 +332,15 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
     total_active_motors = sum(arm.active_count for arm in arms)
     
     if total_active_motors == 0:
-        print("\nError: No active motors found on any bus.")
+        raw_print("\nError: No active motors found on any bus.")
         return []
     
     # Report active motors per arm
     for arm_idx, arm in enumerate(arms):
-        print(f"Arm {arm_idx + 1} ({arm.position}): {arm.active_count} active motors")
+        raw_print(f"Arm {arm_idx + 1} ({arm.position}): {arm.active_count} active motors")
     
-    print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
-    print("Press 'Q' to stop")
+    raw_print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
+    raw_print("Press 'Q' to stop")
     
     try:
         while True:
@@ -375,7 +386,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
                             motor_indices.append(motor_idx)
                             
                         except Exception as e:
-                            print(f"Error preparing control for motor {motor_idx} on arm {arm_idx + 1}: {e}")
+                            raw_print(f"Error preparing control for motor {motor_idx} on arm {arm_idx + 1}: {e}")
                 
                 # Send all MIT control commands at once
                 if control_tasks:
@@ -386,20 +397,20 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
                         for i, state in enumerate(states):
                             motor_idx = motor_indices[i]
                             if isinstance(state, Exception):
-                                print(f"Error controlling motor {motor_idx} on arm {arm_idx + 1}: {state}")
+                                raw_print(f"Error controlling motor {motor_idx} on arm {arm_idx + 1}: {state}")
                             elif state:
                                 arm.positions[motor_idx] = state.position
                                 
                     except Exception as e:
-                        print(f"Error in batch control on arm {arm_idx + 1}: {e}")
+                        raw_print(f"Error in batch control on arm {arm_idx + 1}: {e}")
 
             # Small delay
             await asyncio.sleep(0.01)
 
-        print("\nStopping gravity compensation...")
+        raw_print("\nStopping gravity compensation...")
         
     except Exception as e:
-        print(f"\nError in gravity compensation loop: {e}")
+        raw_print(f"\nError in gravity compensation loop: {e}")
         
     finally:
         # Restore terminal settings (Unix/Linux/Mac)
@@ -410,7 +421,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
                 pass
         
         # SAFETY: Disable all motors to avoid unwanted movements
-        print("Disabling all motors for safety...")
+        raw_print("Disabling all motors for safety...")
         for arm in arms:
             await arm.disable_all_motors()
     
