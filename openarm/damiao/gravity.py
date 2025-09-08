@@ -212,7 +212,7 @@ async def main():
             gravity_torques[5] *= 0
             gravity_torques[6] *= 0
             gravity_torques[7] *= 0
-            gravity_torques[8] *= 0
+            # gravity_torques[8] *= 0
 
             # Prepare MIT control commands for all motors
             control_tasks = []
