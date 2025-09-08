@@ -52,63 +52,24 @@ class OpenArmSimulation:
             for actuator in self._left_arm_actuators
         ]
 
-    def get_left_arm_velocities(self) -> list[float]:
-        """Get current joint velocities for the left arm.
-
-        Returns:
-            List of joint velocities in rad/s for all 7 left arm joints.
-
-        """
-        return [
-            self._get_actuator_velocity(actuator)
-            for actuator in self._left_arm_actuators
-        ]
-
-    def set_left_arm_torques(self, torques: Sequence[float]) -> None:
-        """Apply torques to all left arm joints.
+    def set_left_arm_positions(self, positions: Sequence[float]) -> None:
+        """Set target positions for all left arm joints.
 
         Args:
-            torques: Sequence of 7 torque values in N⋅m for each joint.
+            positions: Sequence of 7 target positions in radians.
 
         Raises:
-            ValueError: If torques sequence length doesn't match number of joints.
+            ValueError: If positions sequence length doesn't match number of joints.
 
         """
-        if len(torques) != len(self._left_arm_actuators):
+        if len(positions) != len(self._left_arm_actuators):
             msg = (
-                f"Expected {len(self._left_arm_actuators)} torques, got {len(torques)}"
+                f"Expected {len(self._left_arm_actuators)} positions, got {len(positions)}"
             )
             raise ValueError(msg)
 
-        for actuator, torque in zip(self._left_arm_actuators, torques, strict=False):
-            self._set_actuator_torque(actuator, torque)
-
-    def set_left_arm_position_control(
-        self, target_positions: Sequence[float], kp: float = 100.0, kd: float = 10.0
-    ) -> None:
-        """Apply PD position control to all left arm joints.
-
-        Args:
-            target_positions: Sequence of 7 target positions in radians.
-            kp: Proportional gain for position error.
-            kd: Derivative gain for velocity error.
-
-        Raises:
-            ValueError: If target_positions sequence length doesn't match
-                number of joints.
-
-        """
-        if len(target_positions) != len(self._left_arm_actuators):
-            msg = (
-                f"Expected {len(self._left_arm_actuators)} positions, "
-                f"got {len(target_positions)}"
-            )
-            raise ValueError(msg)
-
-        for actuator, target_pos in zip(
-            self._left_arm_actuators, target_positions, strict=False
-        ):
-            self._set_actuator_position_control(actuator, target_pos, kp, kd)
+        for actuator, position in zip(self._left_arm_actuators, positions, strict=False):
+            self.data.ctrl[actuator.id] = position
 
     # Right arm control interface
     def get_right_arm_positions(self) -> list[float]:
@@ -123,63 +84,24 @@ class OpenArmSimulation:
             for actuator in self._right_arm_actuators
         ]
 
-    def get_right_arm_velocities(self) -> list[float]:
-        """Get current joint velocities for the right arm.
-
-        Returns:
-            List of joint velocities in rad/s for all 7 right arm joints.
-
-        """
-        return [
-            self._get_actuator_velocity(actuator)
-            for actuator in self._right_arm_actuators
-        ]
-
-    def set_right_arm_torques(self, torques: Sequence[float]) -> None:
-        """Apply torques to all right arm joints.
+    def set_right_arm_positions(self, positions: Sequence[float]) -> None:
+        """Set target positions for all right arm joints.
 
         Args:
-            torques: Sequence of 7 torque values in N⋅m for each joint.
+            positions: Sequence of 7 target positions in radians.
 
         Raises:
-            ValueError: If torques sequence length doesn't match number of joints.
+            ValueError: If positions sequence length doesn't match number of joints.
 
         """
-        if len(torques) != len(self._right_arm_actuators):
+        if len(positions) != len(self._right_arm_actuators):
             msg = (
-                f"Expected {len(self._right_arm_actuators)} torques, got {len(torques)}"
+                f"Expected {len(self._right_arm_actuators)} positions, got {len(positions)}"
             )
             raise ValueError(msg)
 
-        for actuator, torque in zip(self._right_arm_actuators, torques, strict=False):
-            self._set_actuator_torque(actuator, torque)
-
-    def set_right_arm_position_control(
-        self, target_positions: Sequence[float], kp: float = 100.0, kd: float = 10.0
-    ) -> None:
-        """Apply PD position control to all right arm joints.
-
-        Args:
-            target_positions: Sequence of 7 target positions in radians.
-            kp: Proportional gain for position error.
-            kd: Derivative gain for velocity error.
-
-        Raises:
-            ValueError: If target_positions sequence length doesn't match
-                number of joints.
-
-        """
-        if len(target_positions) != len(self._right_arm_actuators):
-            msg = (
-                f"Expected {len(self._right_arm_actuators)} positions, "
-                f"got {len(target_positions)}"
-            )
-            raise ValueError(msg)
-
-        for actuator, target_pos in zip(
-            self._right_arm_actuators, target_positions, strict=False
-        ):
-            self._set_actuator_position_control(actuator, target_pos, kp, kd)
+        for actuator, position in zip(self._right_arm_actuators, positions, strict=False):
+            self.data.ctrl[actuator.id] = position
 
     # Left gripper control interface
     def get_left_gripper_position(self) -> float:
@@ -191,38 +113,14 @@ class OpenArmSimulation:
         """
         return self._get_actuator_position(self._left_gripper_actuator)
 
-    def get_left_gripper_velocity(self) -> float:
-        """Get current velocity of the left gripper.
-
-        Returns:
-            Gripper velocity in m/s.
-
-        """
-        return self._get_actuator_velocity(self._left_gripper_actuator)
-
-    def set_left_gripper_torque(self, torque: float) -> None:
-        """Apply torque to the left gripper.
+    def set_left_gripper_position(self, position: float) -> None:
+        """Set target position for the left gripper.
 
         Args:
-            torque: Torque value in N⋅m (positive = open, negative = close).
+            position: Target gripper position in meters (0.0 = closed, positive = open).
 
         """
-        self._set_actuator_torque(self._left_gripper_actuator, torque)
-
-    def set_left_gripper_position_control(
-        self, target_position: float, kp: float = 100.0, kd: float = 10.0
-    ) -> None:
-        """Apply PD position control to the left gripper.
-
-        Args:
-            target_position: Target gripper position in meters.
-            kp: Proportional gain for position error.
-            kd: Derivative gain for velocity error.
-
-        """
-        self._set_actuator_position_control(
-            self._left_gripper_actuator, target_position, kp, kd
-        )
+        self.data.ctrl[self._left_gripper_actuator.id] = position
 
     # Right gripper control interface
     def get_right_gripper_position(self) -> float:
@@ -234,71 +132,20 @@ class OpenArmSimulation:
         """
         return self._get_actuator_position(self._right_gripper_actuator)
 
-    def get_right_gripper_velocity(self) -> float:
-        """Get current velocity of the right gripper.
-
-        Returns:
-            Gripper velocity in m/s.
-
-        """
-        return self._get_actuator_velocity(self._right_gripper_actuator)
-
-    def set_right_gripper_torque(self, torque: float) -> None:
-        """Apply torque to the right gripper.
+    def set_right_gripper_position(self, position: float) -> None:
+        """Set target position for the right gripper.
 
         Args:
-            torque: Torque value in N⋅m (positive = open, negative = close).
+            position: Target gripper position in meters (0.0 = closed, positive = open).
 
         """
-        self._set_actuator_torque(self._right_gripper_actuator, torque)
-
-    def set_right_gripper_position_control(
-        self, target_position: float, kp: float = 100.0, kd: float = 10.0
-    ) -> None:
-        """Apply PD position control to the right gripper.
-
-        Args:
-            target_position: Target gripper position in meters.
-            kp: Proportional gain for position error.
-            kd: Derivative gain for velocity error.
-
-        """
-        self._set_actuator_position_control(
-            self._right_gripper_actuator, target_position, kp, kd
-        )
+        self.data.ctrl[self._right_gripper_actuator.id] = position
 
     def _get_actuator_position(
         self, actuator: mujoco._structs._MjModelActuatorViews
     ) -> float:
         joint_id = self.model.actuator_trnid[actuator.id][0]
         return self.data.qpos[joint_id]
-
-    def _get_actuator_velocity(
-        self, actuator: mujoco._structs._MjModelActuatorViews
-    ) -> float:
-        joint_id = self.model.actuator_trnid[actuator.id][0]
-        return self.data.qvel[joint_id]
-
-    def _set_actuator_torque(
-        self, actuator: mujoco._structs._MjModelActuatorViews, torque: float
-    ) -> None:
-        self.data.ctrl[actuator.id] = torque
-
-    def _set_actuator_position_control(
-        self,
-        actuator: mujoco._structs._MjModelActuatorViews,
-        target_position: float,
-        kp: float,
-        kd: float,
-    ) -> None:
-        current_pos = self._get_actuator_position(actuator)
-        current_vel = self._get_actuator_velocity(actuator)
-
-        pos_error = target_position - current_pos
-        vel_error = -current_vel  # Target velocity is 0
-
-        torque = kp * pos_error + kd * vel_error
-        self._set_actuator_torque(actuator, torque)
 
     def step(self) -> None:
         """Advance the simulation by one timestep.
