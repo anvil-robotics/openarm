@@ -10,6 +10,21 @@ from math import pi
 import sys
 from typing import Optional
 
+# Platform-specific imports for keyboard input
+try:
+    import select
+    import termios
+    import tty
+    HAS_TERMIOS = True
+except ImportError:
+    HAS_TERMIOS = False
+    
+try:
+    import msvcrt
+    HAS_MSVCRT = True
+except ImportError:
+    HAS_MSVCRT = False
+
 import can
 
 from openarm.bus import Bus
@@ -18,11 +33,25 @@ from . import ControlMode, MitControlParams, Motor, PosVelControlParams
 from .can_buses import create_can_bus
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
+from .gravity import GravityCompensator
 
 # ANSI color codes for terminal output
 RED = "\033[91m"
 GREEN = "\033[92m"
 RESET = "\033[0m"
+
+
+def check_keyboard_input():
+    """Check if a key has been pressed (non-blocking)."""
+    if HAS_MSVCRT:
+        # Windows
+        if msvcrt.kbhit():
+            return msvcrt.getch().decode('utf-8', errors='ignore').lower()
+    elif HAS_TERMIOS:
+        # Unix/Linux/Mac
+        if select.select([sys.stdin], [], [], 0)[0]:
+            return sys.stdin.read(1).lower()
+    return None
 
 
 @dataclass
@@ -267,6 +296,16 @@ async def teleop(
     control_mode = ControlMode.POS_VEL if args.control == "posvel" else ControlMode.MIT
     control_mode_str = "Position-Velocity" if args.control == "posvel" else "MIT"
     
+    # Initialize gravity compensator if enabled
+    gravity_comp = None
+    if args.gravity:
+        if args.control != "mit":
+            print(f"{RED}Warning: Gravity compensation only works with MIT control mode{RESET}")
+            args.gravity = False
+        else:
+            print("Initializing gravity compensation...")
+            gravity_comp = GravityCompensator()
+    
     # Create Arm objects for each bus
     arms: list[Arm] = []
     channel_to_arm = {}  # Maps channel name to Arm object
@@ -377,17 +416,21 @@ async def teleop(
         if slaves:
             print(f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}")
     
-    # Enable motors on slave arms only
-    print(f"\nEnabling motors for teleoperation with {control_mode_str} control...")
+    # Enable motors based on gravity compensation and role
+    print(f"\nEnabling motors for teleoperation...")
     for arm in arms:
         if arm.is_slave:
-            print(f"  {arm.channel}: Enabling motors with {control_mode_str} control")
+            print(f"  {arm.channel}: Enabling motors with {control_mode_str} control (slave)")
             await arm.enable_all_motors(control_mode)
+        elif arm.is_master and gravity_comp:
+            # Masters need to be enabled for gravity compensation
+            print(f"  {arm.channel}: Enabling motors with MIT control for gravity compensation (master)")
+            await arm.enable_all_motors(ControlMode.MIT)
         else:
-            print(f"  {arm.channel}: Keeping motors disabled (master)")
+            print(f"  {arm.channel}: Keeping motors disabled (master without gravity comp)")
     
     # Start teleoperation with monitoring display
-    print(f"\nTeleoperation mode (Ctrl+C to stop):\n")
+    print(f"\nTeleoperation mode starting...\n")
     
     # Print header with bus labels showing channel names and roles
     header = "  Motor"
@@ -412,8 +455,38 @@ async def teleop(
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
     
+    # Set terminal to raw mode for keyboard detection
+    old_settings = None
+    raw_mode = False
+    if HAS_TERMIOS:
+        try:
+            old_settings = termios.tcgetattr(sys.stdin)
+            tty.setraw(sys.stdin.fileno())
+            raw_mode = True
+            print("Press 'Q' to stop")
+        except:
+            print("Press Ctrl+C to stop")
+            pass
+    else:
+        print("Press Ctrl+C to stop")
+    
+    # Helper for raw mode printing
+    def raw_print(msg: str = "") -> None:
+        if raw_mode:
+            print(msg.replace('\n', '\r\n'), end='')
+            sys.stdout.flush()
+        else:
+            print(msg)
+    
     try:
         while True:
+            # Check for 'Q' key press
+            if raw_mode:
+                key = check_keyboard_input()
+                if key == 'q':
+                    raw_print("\nStopping teleoperation...")
+                    break
+            
             # Move cursor up to the first motor line
             print(f"\033[{num_motors}A", end="")
             
@@ -438,10 +511,53 @@ async def teleop(
             # Small delay before refresh
             await asyncio.sleep(0.01)
             
-            # Refresh master arms first
+            # Refresh and control master arms
             master_arms = {arm.channel: arm for arm in arms if arm.is_master}
             for master_arm in master_arms.values():
-                await master_arm.refresh_states()
+                if gravity_comp and master_arm.position in ["left", "right"]:
+                    # Apply gravity compensation to master arm
+                    new_states = []
+                    
+                    # Get current positions for gravity computation
+                    arm_positions = []
+                    for state in master_arm.states:
+                        if state:
+                            arm_positions.append(state.position)
+                        else:
+                            arm_positions.append(0.0)
+                    
+                    # Ensure we have enough positions
+                    while len(arm_positions) < len(MOTOR_CONFIGS):
+                        arm_positions.append(0.0)
+                    
+                    # Compute gravity compensation
+                    gravity_torques = gravity_comp.compute(arm_positions[:len(MOTOR_CONFIGS)], position=master_arm.position)
+                    
+                    # Apply gravity compensation with zero gains (passive mode)
+                    for motor_idx, motor in enumerate(master_arm.motors):
+                        if motor:
+                            try:
+                                torque = gravity_torques[motor_idx] if motor_idx < len(gravity_torques) else 0.0
+                                
+                                # MIT control with only gravity compensation (no position/velocity control)
+                                params = MitControlParams(
+                                    q=0,         # No position control
+                                    dq=0,        # No velocity control
+                                    kp=0,        # Zero position gain (passive)
+                                    kd=0.5,      # Small damping for stability
+                                    tau=torque   # Only gravity compensation
+                                )
+                                state = await motor.control_mit(params)
+                                new_states.append(state)
+                            except Exception:
+                                new_states.append(None)
+                        else:
+                            new_states.append(None)
+                    
+                    master_arm.states = new_states
+                else:
+                    # Just refresh states without control
+                    await master_arm.refresh_states()
             
             # Update slave arms based on their masters
             for slave_arm in [arm for arm in arms if arm.is_slave]:
@@ -469,13 +585,36 @@ async def teleop(
                                     )
                                     state = await slave_motor.control_pos_vel(params)
                                 else:
-                                    # MIT control
+                                    # MIT control with optional gravity compensation
+                                    torque = 0.0
+                                    
+                                    # Add gravity compensation if enabled
+                                    if gravity_comp and slave_arm.position in ["left", "right"]:
+                                        # Get all positions for this arm (use current state positions)
+                                        arm_positions = []
+                                        for idx, state in enumerate(slave_arm.states):
+                                            if state:
+                                                arm_positions.append(state.position)
+                                            else:
+                                                arm_positions.append(0.0)
+                                        
+                                        # Ensure we have enough positions
+                                        while len(arm_positions) < len(MOTOR_CONFIGS):
+                                            arm_positions.append(0.0)
+                                        
+                                        # Compute gravity compensation
+                                        gravity_torques = gravity_comp.compute(arm_positions[:len(MOTOR_CONFIGS)], position=slave_arm.position)
+                                        
+                                        # Get torque for this specific motor
+                                        if motor_idx < len(gravity_torques):
+                                            torque = gravity_torques[motor_idx]
+                                    
                                     params = MitControlParams(
                                         q=position,      # Desired position in radians
                                         dq=0,            # Desired velocity
                                         kp=10.0,         # Position gain
                                         kd=10,           # Damping gain
-                                        tau=0            # Torque feedforward
+                                        tau=torque       # Torque with gravity compensation
                                     )
                                     state = await slave_motor.control_mit(params)
                                 new_states.append(state)
@@ -488,13 +627,24 @@ async def teleop(
     except KeyboardInterrupt:
         # Move cursor below all motor lines
         print(f"\033[{num_motors}B")
-        print("\nTeleoperation stopped.")
+        if not raw_mode:
+            print("\nTeleoperation stopped.")
+        else:
+            raw_print("\nTeleoperation stopped.")
+    
+    finally:
+        # Restore terminal settings first
+        if old_settings is not None and HAS_TERMIOS:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            except:
+                pass
         
-        # Disable all motors on slave arms
-        print("\nDisabling slave motors...")
+        # SAFETY: Disable ALL motors (not just slaves) for safety
+        print("\nDisabling ALL motors for safety...")
         for arm in arms:
-            if arm.is_slave:
-                await arm.disable_all_motors()
+            await arm.disable_all_motors()
+        print("All motors disabled.")
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
@@ -531,6 +681,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Define follower mappings as MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'. "
              "Mirror mode is automatic when positions differ. "
              "(e.g., --follow can0:left:can1:right for mirror, --follow can0:left:can1:left for no mirror)",
+    )
+    
+    parser.add_argument(
+        "--gravity",
+        "-g",
+        action="store_true",
+        help="Enable gravity compensation (MIT mode only)",
     )
 
     return parser.parse_args()
