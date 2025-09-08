@@ -48,18 +48,12 @@ class GravityCompensator:
         
         Args:
             angles: List of joint angles in radians
-            position: "left" or "right" - determines if mirror motors should be negated
+            position: "left" or "right" - determines if mirror motors should have negated torques
             
         Returns:
             List of gravity compensation torques for each joint
         """
         q = np.array(angles)
-        
-        # Apply negation for right arm on mirror motors
-        if position == "right":
-            for i in range(min(len(q), len(MOTOR_CONFIGS))):
-                if MOTOR_CONFIGS[i].mirror:
-                    q[i] = -q[i]
         
         gravity_torques = self.kdl.compute_inverse_dynamics(
             q, 
@@ -67,10 +61,19 @@ class GravityCompensator:
             np.zeros(q.shape)
         )
         
-        return [
+        # Apply tuning factors
+        tuned_torques = [
             torque * factor 
             for torque, factor in zip(gravity_torques, self.tuning_factors)
         ]
+        
+        # Apply negation for right arm on mirror motors
+        if position == "right":
+            for i in range(min(len(tuned_torques), len(MOTOR_CONFIGS))):
+                if MOTOR_CONFIGS[i].mirror:
+                    tuned_torques[i] = -tuned_torques[i]
+        
+        return tuned_torques
 
 
 def parse_arguments() -> argparse.Namespace:
