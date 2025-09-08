@@ -518,43 +518,48 @@ async def teleop(
                     # Apply gravity compensation to master arm
                     new_states = []
                     
-                    # Get current positions for gravity computation
-                    arm_positions = []
-                    for state in master_arm.states:
-                        if state:
-                            arm_positions.append(state.position)
-                        else:
-                            arm_positions.append(0.0)
+                    # Get only active motor positions (like gravity.py does)
+                    active_positions = []
+                    active_indices = []
+                    for idx, (motor, state) in enumerate(zip(master_arm.motors, master_arm.states)):
+                        if motor is not None and state:
+                            active_positions.append(state.position)
+                            active_indices.append(idx)
                     
-                    # Ensure we have enough positions
-                    while len(arm_positions) < len(MOTOR_CONFIGS):
-                        arm_positions.append(0.0)
-                    
-                    # Compute gravity compensation
-                    gravity_torques = gravity_comp.compute(arm_positions[:len(MOTOR_CONFIGS)], position=master_arm.position)
-                    
-                    # Apply gravity compensation with zero gains (passive mode)
-                    for motor_idx, motor in enumerate(master_arm.motors):
-                        if motor:
-                            try:
-                                torque = gravity_torques[motor_idx] if motor_idx < len(gravity_torques) else 0.0
-                                
-                                # MIT control with only gravity compensation (no position/velocity control)
-                                params = MitControlParams(
-                                    q=0,         # No position control
-                                    dq=0,        # No velocity control
-                                    kp=0,        # Zero position gain (passive)
-                                    kd=0.5,      # Small damping for stability
-                                    tau=torque   # Only gravity compensation
-                                )
-                                state = await motor.control_mit(params)
-                                new_states.append(state)
-                            except Exception:
+                    if active_positions:
+                        # Compute gravity compensation with only active positions
+                        gravity_torques = gravity_comp.compute(active_positions, position=master_arm.position)
+                        
+                        # Apply gravity compensation to all motors
+                        for motor_idx, motor in enumerate(master_arm.motors):
+                            if motor:
+                                try:
+                                    # Find torque for this motor if it's active
+                                    torque = 0.0
+                                    if motor_idx in active_indices:
+                                        active_idx = active_indices.index(motor_idx)
+                                        if active_idx < len(gravity_torques):
+                                            torque = gravity_torques[active_idx]
+                                    
+                                    # MIT control with only gravity compensation (same as gravity.py)
+                                    params = MitControlParams(
+                                        q=0,         # No position control
+                                        dq=0,        # No velocity control
+                                        kp=0,        # Zero position gain (passive)
+                                        kd=0,        # No damping (same as gravity.py)
+                                        tau=torque   # Only gravity compensation
+                                    )
+                                    state = await motor.control_mit(params)
+                                    new_states.append(state)
+                                except Exception:
+                                    new_states.append(None)
+                            else:
                                 new_states.append(None)
-                        else:
-                            new_states.append(None)
-                    
-                    master_arm.states = new_states
+                        
+                        master_arm.states = new_states
+                    else:
+                        # No active positions, just refresh
+                        await master_arm.refresh_states()
                 else:
                     # Just refresh states without control
                     await master_arm.refresh_states()
@@ -590,24 +595,23 @@ async def teleop(
                                     
                                     # Add gravity compensation if enabled
                                     if gravity_comp and slave_arm.position in ["left", "right"]:
-                                        # Get all positions for this arm (use current state positions)
-                                        arm_positions = []
-                                        for idx, state in enumerate(slave_arm.states):
-                                            if state:
-                                                arm_positions.append(state.position)
-                                            else:
-                                                arm_positions.append(0.0)
+                                        # Get only active motor positions (like gravity.py)
+                                        active_positions = []
+                                        active_indices = []
+                                        for idx, (m, s) in enumerate(zip(slave_arm.motors, slave_arm.states)):
+                                            if m is not None and s:
+                                                active_positions.append(s.position)
+                                                active_indices.append(idx)
                                         
-                                        # Ensure we have enough positions
-                                        while len(arm_positions) < len(MOTOR_CONFIGS):
-                                            arm_positions.append(0.0)
-                                        
-                                        # Compute gravity compensation
-                                        gravity_torques = gravity_comp.compute(arm_positions[:len(MOTOR_CONFIGS)], position=slave_arm.position)
-                                        
-                                        # Get torque for this specific motor
-                                        if motor_idx < len(gravity_torques):
-                                            torque = gravity_torques[motor_idx]
+                                        if active_positions:
+                                            # Compute gravity compensation with only active positions
+                                            gravity_torques = gravity_comp.compute(active_positions, position=slave_arm.position)
+                                            
+                                            # Get torque for this specific motor if it's active
+                                            if motor_idx in active_indices:
+                                                active_idx = active_indices.index(motor_idx)
+                                                if active_idx < len(gravity_torques):
+                                                    torque = gravity_torques[active_idx]
                                     
                                     params = MitControlParams(
                                         q=position,      # Desired position in radians
