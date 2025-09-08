@@ -1,36 +1,12 @@
 import asyncio
 import mujoco
 import numpy as np
-import platform
-import time
-from dataclasses import dataclass
-
-import can
-import usb.core
 
 from openarm.bus import Bus
-from openarm.damiao import ControlMode, MitControlParams, Motor, MotorType
+from openarm.damiao import ControlMode, MitControlParams, Motor
+from openarm.damiao.can_buses import create_can_bus
+from openarm.damiao.config import MOTOR_CONFIGS
 from openarm.simulation.models import OPENARM_MODEL_PATH
-
-@dataclass
-class MotorConfig:
-    """Configuration for a single motor."""
-    name: str
-    slave_id: int
-    master_id: int
-    type: MotorType
-
-# Motor configurations
-MOTOR_CONFIGS: list[MotorConfig] = [
-    MotorConfig("J1", slave_id=0x01, master_id=0x11, type=MotorType.DM8009),
-    MotorConfig("J2", slave_id=0x02, master_id=0x12, type=MotorType.DM8009),
-    MotorConfig("J3", slave_id=0x03, master_id=0x13, type=MotorType.DM4340),
-    MotorConfig("J4", slave_id=0x04, master_id=0x14, type=MotorType.DM4340),
-    MotorConfig("J5", slave_id=0x05, master_id=0x15, type=MotorType.DM4310),
-    MotorConfig("J6", slave_id=0x06, master_id=0x16, type=MotorType.DM4310),
-    MotorConfig("J7", slave_id=0x07, master_id=0x17, type=MotorType.DM4310),
-    MotorConfig("J8", slave_id=0x08, master_id=0x18, type=MotorType.DM4310),
-]
 
 class MuJoCoKDL:
     """A simple class for computing inverse dynamics using MuJoCo."""
@@ -57,51 +33,35 @@ class MuJoCoKDL:
         mujoco.mj_inverse(self.model, self.data)
         return self.data.qfrc_inverse[:length]
 
-def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.BusABC]:
-    """Create and initialize CAN bus based on platform."""
-    if platform.system() in ["Windows", "Darwin"]:  # Darwin is macOS
-        print("Searching for USB CAN devices...")
-        devs = usb.core.find(idVendor=0x1D50, idProduct=0x606F, find_all=True)
-        if not devs:
-            print("Error: No USB CAN devices found (VID:0x1D50, PID:0x606F)")
-            return []
 
-        devs = list(devs)
-        print(f"Found {len(devs)} USB CAN device(s)")
+class GravityCompensator:
+    """Gravity compensation calculator with persistent MuJoCo model."""
+    
+    def __init__(self):
+        self.kdl = MuJoCoKDL()
+        self.tuning_factors = [0.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+    
+    def compute(self, angles: list[float]) -> list[float]:
+        """Compute gravity compensation torques for given joint angles.
+        
+        Args:
+            angles: List of joint angles in radians
+            
+        Returns:
+            List of gravity compensation torques for each joint
+        """
+        q = np.array(angles)
+        gravity_torques = self.kdl.compute_inverse_dynamics(
+            q, 
+            np.zeros(q.shape), 
+            np.zeros(q.shape)
+        )
+        
+        return [
+            torque * factor 
+            for torque, factor in zip(gravity_torques, self.tuning_factors)
+        ]
 
-        can_buses = []
-        for dev in devs:
-            print(f"Initializing USB CAN device: {dev.product}")
-
-            last_error = None
-            for attempt in range(max_attempts):
-                try:
-                    can_bus = can.Bus(
-                        interface="gs_usb",
-                        channel=dev.product,
-                        bitrate=1000000,
-                        bus=dev.bus,
-                        address=dev.address
-                    )
-                    print(f"  CAN bus initialized successfully (attempt {attempt + 1})")
-                    can_buses.append(can_bus)
-                    break
-                except Exception as e:
-                    last_error = e
-                    if attempt < max_attempts - 1:
-                        time.sleep(0.1)
-            else:
-                print(f"  Failed to initialize CAN bus after {max_attempts} attempts: {last_error}")
-
-        return can_buses
-
-    # Linux
-    print(f"Initializing CAN bus on {interface}...")
-    try:
-        return [can.Bus(channel=interface, interface="socketcan")]
-    except Exception as e:
-        print(f"Failed to initialize socketcan: {e}")
-        return []
 
 async def setup_motors():
     """Setup and initialize motors, return list of motor objects and their current positions."""
@@ -173,8 +133,8 @@ async def main():
     """Main gravity compensation loop."""
     print("Setting up gravity compensation...")
 
-    # Initialize dynamics computation
-    kdl = MuJoCoKDL()
+    # Initialize gravity compensator (reuses MuJoCo model)
+    gravity_comp = GravityCompensator()
 
     # Setup motors and get initial positions
     motors, current_positions = await setup_motors()
@@ -199,19 +159,8 @@ async def main():
                 print("No active motors")
                 break
 
-            # Compute gravity compensation torques
-            q = np.array(active_positions)
-            gravity_torques = kdl.compute_inverse_dynamics(q, np.zeros(q.shape), np.zeros(q.shape))
-
-            # Tune the torques scaling
-            gravity_torques[0] *= 0.8
-            gravity_torques[1] *= 0.8
-            gravity_torques[2] *= 1
-            gravity_torques[3] *= 1
-            gravity_torques[4] *= 1
-            gravity_torques[5] *= 1
-            gravity_torques[6] *= 1
-            gravity_torques[7] *= 0
+            # Compute gravity compensation torques using the new function
+            tuned_torques = gravity_comp.compute(active_positions)
 
             # Prepare MIT control commands for all motors
             control_tasks = []
@@ -222,7 +171,7 @@ async def main():
                     try:
                         # Find the torque for this motor
                         active_idx = active_indices.index(motor_idx)
-                        torque = gravity_torques[active_idx]
+                        torque = tuned_torques[active_idx]
 
                         # MIT control with torque only (position, velocity, gains set to 0)
                         params = MitControlParams(
