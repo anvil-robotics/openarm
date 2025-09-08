@@ -290,21 +290,13 @@ async def teleop(
     all_state_results: list[list],
     args: argparse.Namespace,
 ) -> None:
-    """Teleoperation mode - enables motors with MIT control."""
-    
-    # Determine control mode
-    control_mode = ControlMode.POS_VEL if args.control == "posvel" else ControlMode.MIT
-    control_mode_str = "Position-Velocity" if args.control == "posvel" else "MIT"
+    """Teleoperation mode - masters use MIT, slaves use PosVel."""
     
     # Initialize gravity compensator if enabled
     gravity_comp = None
     if args.gravity:
-        if args.control != "mit":
-            print(f"{RED}Warning: Gravity compensation only works with MIT control mode{RESET}")
-            args.gravity = False
-        else:
-            print("Initializing gravity compensation...")
-            gravity_comp = GravityCompensator()
+        print("Initializing gravity compensation...")
+        gravity_comp = GravityCompensator()
     
     # Create Arm objects for each bus
     arms: list[Arm] = []
@@ -416,18 +408,15 @@ async def teleop(
         if slaves:
             print(f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}")
     
-    # Enable motors based on gravity compensation and role
+    # Enable all motors (masters with MIT, slaves with PosVel)
     print(f"\nEnabling motors for teleoperation...")
     for arm in arms:
         if arm.is_slave:
-            print(f"  {arm.channel}: Enabling motors with {control_mode_str} control (slave)")
-            await arm.enable_all_motors(control_mode)
-        elif arm.is_master and gravity_comp:
-            # Masters need to be enabled for gravity compensation
-            print(f"  {arm.channel}: Enabling motors with MIT control for gravity compensation (master)")
+            print(f"  {arm.channel}: Enabling motors with Position-Velocity control (slave)")
+            await arm.enable_all_motors(ControlMode.POS_VEL)
+        else:  # master
+            print(f"  {arm.channel}: Enabling motors with MIT control (master)")
             await arm.enable_all_motors(ControlMode.MIT)
-        else:
-            print(f"  {arm.channel}: Keeping motors disabled (master without gravity comp)")
     
     # Start teleoperation with monitoring display
     print(f"\nTeleoperation mode starting...\n")
@@ -511,16 +500,18 @@ async def teleop(
             # Small delay before refresh
             await asyncio.sleep(0.01)
             
-            # Refresh and control master arms
+            # Control master arms with MIT (gravity comp or zero torque)
             master_arms = {arm.channel: arm for arm in arms if arm.is_master}
             for master_arm in master_arms.values():
+                new_states = []
+                
+                # Calculate gravity compensation if enabled
+                gravity_torques = None
+                active_indices = []
+                
                 if gravity_comp and master_arm.position in ["left", "right"]:
-                    # Apply gravity compensation to master arm
-                    new_states = []
-                    
                     # Get only active motor positions (like gravity.py does)
                     active_positions = []
-                    active_indices = []
                     for idx, (motor, state) in enumerate(zip(master_arm.motors, master_arm.states)):
                         if motor is not None and state:
                             active_positions.append(state.position)
@@ -529,40 +520,34 @@ async def teleop(
                     if active_positions:
                         # Compute gravity compensation with only active positions
                         gravity_torques = gravity_comp.compute(active_positions, position=master_arm.position)
-                        
-                        # Apply gravity compensation to all motors
-                        for motor_idx, motor in enumerate(master_arm.motors):
-                            if motor:
-                                try:
-                                    # Find torque for this motor if it's active
-                                    torque = 0.0
-                                    if motor_idx in active_indices:
-                                        active_idx = active_indices.index(motor_idx)
-                                        if active_idx < len(gravity_torques):
-                                            torque = gravity_torques[active_idx]
-                                    
-                                    # MIT control with only gravity compensation (same as gravity.py)
-                                    params = MitControlParams(
-                                        q=0,         # No position control
-                                        dq=0,        # No velocity control
-                                        kp=0,        # Zero position gain (passive)
-                                        kd=0,        # No damping (same as gravity.py)
-                                        tau=torque   # Only gravity compensation
-                                    )
-                                    state = await motor.control_mit(params)
-                                    new_states.append(state)
-                                except Exception:
-                                    new_states.append(None)
-                            else:
-                                new_states.append(None)
-                        
-                        master_arm.states = new_states
+                
+                # Apply MIT control to all motors
+                for motor_idx, motor in enumerate(master_arm.motors):
+                    if motor:
+                        try:
+                            # Determine torque value
+                            torque = 0.0
+                            if gravity_torques and motor_idx in active_indices:
+                                active_idx = active_indices.index(motor_idx)
+                                if active_idx < len(gravity_torques):
+                                    torque = gravity_torques[active_idx]
+                            
+                            # MIT control with zero torque or gravity compensation
+                            params = MitControlParams(
+                                q=0,         # No position control
+                                dq=0,        # No velocity control
+                                kp=0,        # Zero position gain (passive)
+                                kd=0,        # No damping
+                                tau=torque   # Zero or gravity compensation
+                            )
+                            state = await motor.control_mit(params)
+                            new_states.append(state)
+                        except Exception:
+                            new_states.append(None)
                     else:
-                        # No active positions, just refresh
-                        await master_arm.refresh_states()
-                else:
-                    # Just refresh states without control
-                    await master_arm.refresh_states()
+                        new_states.append(None)
+                
+                master_arm.states = new_states
             
             # Update slave arms based on their masters
             for slave_arm in [arm for arm in arms if arm.is_slave]:
@@ -581,46 +566,12 @@ async def teleop(
                                 if slave_arm.mirror_mode and motor_idx < len(MOTOR_CONFIGS) and MOTOR_CONFIGS[motor_idx].mirror:
                                     position = -position
                                 
-                                # Send control command based on mode
-                                if args.control == "posvel":
-                                    # Position-Velocity control
-                                    params = PosVelControlParams(
-                                        position=position,
-                                        velocity=1
-                                    )
-                                    state = await slave_motor.control_pos_vel(params)
-                                else:
-                                    # MIT control with optional gravity compensation
-                                    torque = 0.0
-                                    
-                                    # Add gravity compensation if enabled
-                                    if gravity_comp and slave_arm.position in ["left", "right"]:
-                                        # Get only active motor positions (like gravity.py)
-                                        active_positions = []
-                                        active_indices = []
-                                        for idx, (m, s) in enumerate(zip(slave_arm.motors, slave_arm.states)):
-                                            if m is not None and s:
-                                                active_positions.append(s.position)
-                                                active_indices.append(idx)
-                                        
-                                        if active_positions:
-                                            # Compute gravity compensation with only active positions
-                                            gravity_torques = gravity_comp.compute(active_positions, position=slave_arm.position)
-                                            
-                                            # Get torque for this specific motor if it's active
-                                            if motor_idx in active_indices:
-                                                active_idx = active_indices.index(motor_idx)
-                                                if active_idx < len(gravity_torques):
-                                                    torque = gravity_torques[active_idx]
-                                    
-                                    params = MitControlParams(
-                                        q=position,      # Desired position in radians
-                                        dq=0,            # Desired velocity
-                                        kp=10.0,         # Position gain
-                                        kd=10,           # Damping gain
-                                        tau=torque       # Torque with gravity compensation
-                                    )
-                                    state = await slave_motor.control_mit(params)
+                                # Always use Position-Velocity control for slaves
+                                params = PosVelControlParams(
+                                    position=position,
+                                    velocity=1
+                                )
+                                state = await slave_motor.control_pos_vel(params)
                                 new_states.append(state)
                             except Exception:
                                 new_states.append(None)
@@ -669,14 +620,6 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Enable teleoperation mode (enables motors with control, except first bus)",
-    )
-    
-    parser.add_argument(
-        "--control",
-        "-c",
-        choices=["posvel", "mit"],
-        default="posvel",
-        help="Control mode for teleoperation: posvel (position-velocity, default) or mit",
     )
     
     parser.add_argument(
