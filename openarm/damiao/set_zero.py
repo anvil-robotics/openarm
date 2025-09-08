@@ -29,6 +29,14 @@ async def main(args: argparse.Namespace) -> None:
     
     print(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}")
 
+    try:
+        return await _main(args, can_buses)
+    finally:
+        for bus in can_buses:
+            bus.shutdown()
+
+async def _main(args: argparse.Namespace, can_buses: list) -> None:
+    """Process motors on all buses."""
     # Scan and set zero for each bus
     for bus_idx, can_bus in enumerate(can_buses):
         print(f"\n{'='*50}")
