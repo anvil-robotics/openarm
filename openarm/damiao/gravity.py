@@ -88,6 +88,8 @@ async def main(args: argparse.Namespace) -> None:
         print("Error: No CAN buses detected.")
         return
     
+    print(f"\nDetected {len(all_can_buses)} CAN bus(es) total")
+    
     # Filter buses based on args if specified
     if args.port:
         # Use only specified ports
@@ -106,15 +108,12 @@ async def main(args: argparse.Namespace) -> None:
             for bus in all_can_buses:
                 bus.shutdown()
             return
+        
+        print(f"Using {len(can_buses)} selected bus(es): {args.port}")
     else:
         # Use all detected buses
         can_buses = all_can_buses
-    
-    if not can_buses:
-        print("Error: No CAN buses detected.")
-        return
-    
-    print(f"\nDetected {len(can_buses)} CAN bus(es)")
+        print(f"Using all {len(can_buses)} bus(es)")
     
     try:
         # Run gravity compensation for each bus
