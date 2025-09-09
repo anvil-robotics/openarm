@@ -3,6 +3,7 @@
 High-level interface for controlling Damiao motors through CAN bus communication.
 """
 
+from .arm import Arm
 from .detect import detect_motors
 from .encoding import (
     ControlMode,
@@ -20,6 +21,7 @@ from .motor import MOTOR_LIMITS, Motor, MotorType
 __version__ = "0.1.0"
 
 __all__ = [
+    "Arm",
     "MOTOR_LIMITS",
     "ControlMode",
     "MitControlParams",
