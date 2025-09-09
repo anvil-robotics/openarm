@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import sys
-from dataclasses import dataclass, field
 from typing import Optional
 import mujoco
 import numpy as np
@@ -23,49 +22,23 @@ except ImportError:
 
 import can
 from openarm.bus import Bus
-from openarm.damiao import ControlMode, MitControlParams, Motor
+from openarm.damiao import Arm, ControlMode, MitControlParams, Motor, detect_motors
 from openarm.damiao.can_buses import create_can_bus
 from openarm.damiao.config import MOTOR_CONFIGS
 from openarm.simulation.models import OPENARM_MODEL_PATH
 
 
-@dataclass
-class Arm:
-    """Represents a single robotic arm with its motors and configuration."""
-    position: str  # "left" or "right"
-    can_bus: can.BusABC  # The CAN bus for this arm
-    motors: list[Optional[Motor]] = field(default_factory=list)  # Motors (None for inactive)
-    positions: list[float] = field(default_factory=list)  # Current positions for each motor
+class ArmWithGravity(Arm):
+    """Extended Arm class with gravity compensation support."""
     
-    @property
-    def active_motors(self) -> list[Motor]:
-        """Get list of active (non-None) motors."""
-        return [m for m in self.motors if m is not None]
-    
-    @property
-    def active_count(self) -> int:
-        """Count of active motors."""
-        return len(self.active_motors)
-    
-    def get_active_positions(self) -> tuple[list[float], list[int]]:
-        """Get positions and indices of active motors.
-        Returns: (positions, indices) where indices map to original motor array"""
-        positions = []
-        indices = []
-        for i, (motor, pos) in enumerate(zip(self.motors, self.positions)):
-            if motor is not None:
-                positions.append(pos)
-                indices.append(i)
-        return positions, indices
-    
-    async def disable_all_motors(self) -> None:
-        """Safely disable all active motors."""
-        for motor in self.motors:
-            if motor is not None:
-                try:
-                    await motor.disable()
-                except Exception:
-                    pass
+    def __init__(self, motors: list[Motor], position: str, can_bus: can.BusABC):
+        # Initialize parent Arm with all motors
+        super().__init__(motors)
+        
+        # Store additional attributes needed for gravity compensation
+        self.position = position  # "left" or "right"
+        self.can_bus = can_bus
+        self.positions = [0.0] * len(motors)  # Position for each motor
 
 class MuJoCoKDL:
     """A simple class for computing inverse dynamics using MuJoCo."""
@@ -219,7 +192,7 @@ async def main(args: argparse.Namespace) -> None:
         print(f"  {bus_name}: {position} arm")
     
     # Store arms for cleanup
-    arms: list[Arm] = []
+    arms: list[ArmWithGravity] = []
     
     try:
         # Run gravity compensation for all selected buses together
@@ -229,7 +202,7 @@ async def main(args: argparse.Namespace) -> None:
         if arms:
             print("\nDisabling all motors for safety...")
             for arm in arms:
-                await arm.disable_all_motors()
+                await arm.disable()
         
         # Then shutdown all CAN buses
         for bus in all_can_buses:
@@ -249,7 +222,7 @@ def check_keyboard_input():
     return None
 
 
-async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
+async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithGravity]:
     """Main gravity compensation loop for all selected buses with their positions.
     
     Returns:
@@ -264,16 +237,33 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
     print("Testing motor connectivity on all selected buses...")
     
     # Create Arm objects for each bus
-    arms: list[Arm] = []
+    arms: list[ArmWithGravity] = []
     
     for bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
         print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
         
-        # Create new Arm object
-        arm = Arm(position=arm_position, can_bus=can_bus)
+        # First use detect_motors to check if ALL motors are present
+        print("  Checking for motors...")
+        slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
+        detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
+        detected_ids = {info.slave_id for info in detected}
         
+        # Check if ALL required motors are detected
+        missing_motors = []
         for config in MOTOR_CONFIGS:
-            print(f"  Testing motor {config.name} (ID 0x{config.slave_id:02X})...")
+            if config.slave_id not in detected_ids:
+                missing_motors.append(config.name)
+        
+        if missing_motors:
+            print(f"  ERROR: Missing motors: {', '.join(missing_motors)}")
+            print(f"  Skipping this arm (incomplete - needs ALL motors)")
+            continue
+        
+        print(f"  All {len(MOTOR_CONFIGS)} motors detected!")
+        
+        # Create ALL motors for this arm
+        motors = []
+        for config in MOTOR_CONFIGS:
             bus = Bus(can_bus)
             motor = Motor(
                 bus,
@@ -281,44 +271,50 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
                 master_id=config.master_id,
                 motor_type=config.type,
             )
-            
-            try:
-                # Enable and get initial state from enable response
-                state = await asyncio.wait_for(motor.enable(), timeout=1.0)
-                await asyncio.wait_for(motor.set_control_mode(ControlMode.MIT), timeout=1.0)
-                
-                if state:
-                    arm.motors.append(motor)
-                    arm.positions.append(state.position)  # Use position from enable response
-                    print(f"    Motor {config.name} active - Initial position: {state.position:.3f} rad")
-                else:
-                    print(f"    Motor {config.name} inactive - No state received")
-                    arm.motors.append(None)
-                    arm.positions.append(0.0)
-                    
-            except asyncio.TimeoutError:
-                print(f"    Motor {config.name} inactive - Timeout")
-                arm.motors.append(None)
-                arm.positions.append(0.0)
-            except Exception as e:
-                print(f"    Motor {config.name} inactive - Error: {e}")
-                arm.motors.append(None)
-                arm.positions.append(0.0)
+            motors.append(motor)
         
-        arms.append(arm)
+        # Create ArmWithGravity with ALL motors
+        arm = ArmWithGravity(
+            motors=motors, 
+            position=arm_position, 
+            can_bus=can_bus
+        )
+        
+        print(f"  Enabling all {len(motors)} motors...")
+        try:
+            # Enable all motors at once
+            states = await arm.enable()
+            
+            # Set control mode for all motors at once
+            await arm.set_control_mode(ControlMode.MIT)
+            
+            # Initialize positions from enable response
+            for i, state in enumerate(states):
+                if state:
+                    arm.positions[i] = state.position
+                    print(f"    {MOTOR_CONFIGS[i].name}: Initial position {state.position:.3f} rad")
+            
+            # Successfully initialized, add to arms list
+            arms.append(arm)
+            print(f"  Arm ready with {len(motors)} motors")
+            
+        except Exception as e:
+            print(f"  ERROR: Arm initialization failed - {e}")
+            print(f"  Skipping this arm (unusable)")
+            # Don't add to arms list - this arm is broken
     
-    # Count total active motors across all arms
-    total_active_motors = sum(arm.active_count for arm in arms)
+    # Count total motors across all working arms
+    total_motors = sum(len(arm.motors) for arm in arms)
     
-    if total_active_motors == 0:
-        print("\nError: No active motors found on any bus.")
+    if total_motors == 0:
+        print("\nError: No working arms found.")
         return []
     
-    # Report active motors per arm
+    # Report motors per arm
     for arm_idx, arm in enumerate(arms):
-        print(f"Arm {arm_idx + 1} ({arm.position}): {arm.active_count} active motors")
+        print(f"Arm {arm_idx + 1} ({arm.position}): {len(arm.motors)} motors")
     
-    print(f"\nStarting gravity compensation loop with {total_active_motors} total motors...")
+    print(f"\nStarting gravity compensation loop with {total_motors} total motors...")
     print("Press 'Q' to stop")
     
     # NOW set terminal to raw mode for keyboard detection during the main loop
@@ -351,58 +347,26 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
             
             # Process each arm
             for arm_idx, arm in enumerate(arms):
-                # Get active positions and indices
-                active_positions, active_indices = arm.get_active_positions()
+                # Compute gravity compensation torques for all motors
+                torques = gravity_comp.compute(arm.positions, position=arm.position)
                 
-                if not active_positions:
-                    continue  # Skip this arm if no active motors
-                
-                # Compute gravity compensation torques
-                tuned_torques = gravity_comp.compute(active_positions, position=arm.position)
-                
-                # Prepare MIT control commands for all motors
-                control_tasks = []
-                motor_indices = []
-                
-                for motor_idx, motor in enumerate(arm.motors):
-                    if motor is not None:
-                        try:
-                            # Find the torque for this motor
-                            active_idx = active_indices.index(motor_idx)
-                            torque = tuned_torques[active_idx]
+                # Use Arm's batch control method for all motors at once
+                try:
+                    states = await arm.control_mit(
+                        kp=0,           # No position gain
+                        kd=0,           # No damping gain
+                        q=0,            # No position control
+                        dq=0,           # No velocity control
+                        tau=torques     # Gravity compensation torques for all motors
+                    )
+                    
+                    # Update positions from motor responses
+                    for i, state in enumerate(states):
+                        if state:
+                            arm.positions[i] = state.position
                             
-                            # MIT control with torque only
-                            params = MitControlParams(
-                                q=0,        # No position control
-                                dq=0,       # No velocity control
-                                kp=0,       # No position gain
-                                kd=0,       # No damping gain
-                                tau=torque  # Pure torque control
-                            )
-                            
-                            # Create control task
-                            task = motor.control_mit(params)
-                            control_tasks.append(task)
-                            motor_indices.append(motor_idx)
-                            
-                        except Exception as e:
-                            raw_print(f"Error preparing control for motor {motor_idx} on arm {arm_idx + 1}: {e}")
-                
-                # Send all MIT control commands at once
-                if control_tasks:
-                    try:
-                        states = await asyncio.gather(*control_tasks, return_exceptions=True)
-                        
-                        # Update positions from motor responses
-                        for i, state in enumerate(states):
-                            motor_idx = motor_indices[i]
-                            if isinstance(state, Exception):
-                                raw_print(f"Error controlling motor {motor_idx} on arm {arm_idx + 1}: {state}")
-                            elif state:
-                                arm.positions[motor_idx] = state.position
-                                
-                    except Exception as e:
-                        raw_print(f"Error in batch control on arm {arm_idx + 1}: {e}")
+                except Exception as e:
+                    raw_print(f"Error in batch control on arm {arm_idx + 1}: {e}")
 
             # Small delay
             await asyncio.sleep(0.01)
@@ -423,7 +387,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[Arm]:
         # SAFETY: Disable all motors to avoid unwanted movements
         raw_print("Disabling all motors for safety...")
         for arm in arms:
-            await arm.disable_all_motors()
+            await arm.disable()
     
     # Return arms for cleanup in main()
     return arms
