@@ -444,6 +444,9 @@ async def teleop(
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
     
+    # Print stop instruction before entering raw mode
+    print("Press 'Q' to stop" if HAS_TERMIOS else "Press Ctrl+C to stop")
+    
     # Set terminal to raw mode for keyboard detection
     old_settings = None
     raw_mode = False
@@ -452,12 +455,9 @@ async def teleop(
             old_settings = termios.tcgetattr(sys.stdin)
             tty.setraw(sys.stdin.fileno())
             raw_mode = True
-            print("Press 'Q' to stop")
         except:
-            print("Press Ctrl+C to stop")
+            # Might fail in some environments
             pass
-    else:
-        print("Press Ctrl+C to stop")
     
     # Helper for raw mode printing
     def raw_print(msg: str = "") -> None:
@@ -468,6 +468,9 @@ async def teleop(
             print(msg)
     
     try:
+        # Small initial delay to ensure display is ready
+        await asyncio.sleep(0.1)
+        
         while True:
             # Check for 'Q' key press
             if raw_mode:
@@ -476,8 +479,8 @@ async def teleop(
                     raw_print("\nStopping teleoperation...")
                     break
             
-            # Move cursor up to the first motor line
-            print(f"\033[{num_motors}A", end="")
+            # Move cursor up to the first motor line (add +1 for the "Press Q" line)
+            print(f"\033[{num_motors + 1}A", end="")
             
             # Print current states for all arms
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
