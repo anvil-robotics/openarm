@@ -94,6 +94,7 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:
             # Set zero position
             try:
                 await motor.set_zero_position()
+                await motor.save_parameters()
                 print(f"{GREEN}✓ Zero set{RESET}")
             except Exception as e:
                 print(f"{RED}✗ Failed to set zero: {e}{RESET}")
