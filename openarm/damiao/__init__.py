@@ -21,8 +21,8 @@ from .motor import MOTOR_LIMITS, Motor, MotorType
 __version__ = "0.1.0"
 
 __all__ = [
-    "Arm",
     "MOTOR_LIMITS",
+    "Arm",
     "ControlMode",
     "MitControlParams",
     "Motor",
