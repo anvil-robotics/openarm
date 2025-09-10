@@ -83,6 +83,30 @@ class OpenArmSimulation:
         for actuator, torque in zip(self._left_arm_actuators, torques, strict=False):
             self._set_actuator_torque(actuator, torque)
 
+    def set_left_arm_positions(self, positions: Sequence[float]) -> None:
+        """Set joint positions directly for the left arm without physics.
+
+        Args:
+            positions: Sequence of 7 joint positions in radians.
+
+        Raises:
+            ValueError: If positions sequence length doesn't match number of joints.
+
+        """
+        if len(positions) != len(self._left_arm_actuators):
+            msg = (
+                f"Expected {len(self._left_arm_actuators)} positions, "
+                f"got {len(positions)}"
+            )
+            raise ValueError(msg)
+
+        for actuator, position in zip(
+            self._left_arm_actuators, positions, strict=False
+        ):
+            self._set_actuator_position(actuator, position)
+
+        mujoco.mj_forward(self.model, self.data)
+
     def set_left_arm_position_control(
         self, target_positions: Sequence[float], kp: float = 100.0, kd: float = 10.0
     ) -> None:
@@ -154,6 +178,30 @@ class OpenArmSimulation:
         for actuator, torque in zip(self._right_arm_actuators, torques, strict=False):
             self._set_actuator_torque(actuator, torque)
 
+    def set_right_arm_positions(self, positions: Sequence[float]) -> None:
+        """Set joint positions directly for the right arm without physics.
+
+        Args:
+            positions: Sequence of 7 joint positions in radians.
+
+        Raises:
+            ValueError: If positions sequence length doesn't match number of joints.
+
+        """
+        if len(positions) != len(self._right_arm_actuators):
+            msg = (
+                f"Expected {len(self._right_arm_actuators)} positions, "
+                f"got {len(positions)}"
+            )
+            raise ValueError(msg)
+
+        for actuator, position in zip(
+            self._right_arm_actuators, positions, strict=False
+        ):
+            self._set_actuator_position(actuator, position)
+
+        mujoco.mj_forward(self.model, self.data)
+
     def set_right_arm_position_control(
         self, target_positions: Sequence[float], kp: float = 100.0, kd: float = 10.0
     ) -> None:
@@ -209,6 +257,16 @@ class OpenArmSimulation:
         """
         self._set_actuator_torque(self._left_gripper_actuator, torque)
 
+    def set_left_gripper_position(self, position: float) -> None:
+        """Set gripper position directly for the left gripper without physics.
+
+        Args:
+            position: Gripper position in meters.
+
+        """
+        self._set_actuator_position(self._left_gripper_actuator, position)
+        mujoco.mj_forward(self.model, self.data)
+
     def set_left_gripper_position_control(
         self, target_position: float, kp: float = 100.0, kd: float = 10.0
     ) -> None:
@@ -251,6 +309,16 @@ class OpenArmSimulation:
 
         """
         self._set_actuator_torque(self._right_gripper_actuator, torque)
+
+    def set_right_gripper_position(self, position: float) -> None:
+        """Set gripper position directly for the right gripper without physics.
+
+        Args:
+            position: Gripper position in meters.
+
+        """
+        self._set_actuator_position(self._right_gripper_actuator, position)
+        mujoco.mj_forward(self.model, self.data)
 
     def set_right_gripper_position_control(
         self, target_position: float, kp: float = 100.0, kd: float = 10.0
@@ -299,6 +367,12 @@ class OpenArmSimulation:
 
         torque = kp * pos_error + kd * vel_error
         self._set_actuator_torque(actuator, torque)
+
+    def _set_actuator_position(
+        self, actuator: mujoco._structs._MjModelActuatorViews, position: float
+    ) -> None:
+        joint_id = self.model.actuator_trnid[actuator.id][0]
+        self.data.qpos[joint_id] = position
 
     def step(self) -> None:
         """Advance the simulation by one timestep.
