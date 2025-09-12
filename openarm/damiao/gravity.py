@@ -149,7 +149,25 @@ def parse_arguments() -> argparse.Namespace:
 
 async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
     """Run main gravity compensation loop with proper shutdown handling."""
-    # Create all CAN buses
+    # Parse port:position pairs first (before creating buses)
+    port_configs = []  # List of (port_name, position)
+    for port_spec in args.port:
+        parts = port_spec.split(":")
+        if len(parts) != 2:  # noqa: PLR2004
+            # Invalid format, exit early
+            print(  # noqa: T201
+                f"Error: Invalid format '{port_spec}'. Expected format: PORT:POSITION"
+            )
+            print("Example: --port can0:left --port can1:right")  # noqa: T201
+            return
+        port_name, position = parts
+        if position not in ["left", "right"]:
+            # Invalid position, exit early
+            print(f"Error: Invalid position '{position}'. Must be 'left' or 'right'")  # noqa: T201
+            return
+        port_configs.append((port_name, position))
+
+    # Now create CAN buses after validation
     try:
         all_can_buses = [
             can.Bus(channel=config["channel"], interface=config["interface"])
@@ -160,24 +178,6 @@ async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
 
     if not all_can_buses:
         return
-
-    # Parse port:position pairs
-    port_configs = []  # List of (port_name, position)
-    for port_spec in args.port:
-        try:
-            parts = port_spec.split(":")
-            if len(parts) != 2:  # noqa: PLR2004
-                msg = f"Invalid format: {port_spec}"
-                raise ValueError(msg)  # noqa: TRY301
-            port_name, position = parts
-            if position not in ["left", "right"]:
-                msg = f"Invalid position: {position}"
-                raise ValueError(msg)  # noqa: TRY301
-            port_configs.append((port_name, position))
-        except ValueError:
-            for bus in all_can_buses:
-                bus.shutdown()
-            return
 
     # Filter buses based on specified ports and attach position
     selected_buses = []  # List of (bus, position)
