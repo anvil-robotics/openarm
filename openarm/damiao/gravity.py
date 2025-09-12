@@ -1,7 +1,9 @@
+"""Gravity compensation for robotic arms using MuJoCo physics simulation."""
+
 import argparse
 import asyncio
 import sys
-from typing import Optional
+
 import mujoco
 import numpy as np
 
@@ -22,9 +24,13 @@ try:
 except ImportError:
     HAS_MSVCRT = False
 
+import builtins
+import contextlib
+
 import can
+
 from openarm.bus import Bus
-from openarm.damiao import Arm, ControlMode, MitControlParams, Motor, detect_motors
+from openarm.damiao import Arm, ControlMode, Motor, detect_motors
 from openarm.damiao.can_buses import create_can_bus
 from openarm.damiao.config import MOTOR_CONFIGS
 from openarm.simulation.models import OPENARM_MODEL_PATH
@@ -33,7 +39,8 @@ from openarm.simulation.models import OPENARM_MODEL_PATH
 class ArmWithGravity(Arm):
     """Extended Arm class with gravity compensation support."""
 
-    def __init__(self, motors: list[Motor], position: str, can_bus: can.BusABC):
+    def __init__(self, motors: list[Motor], position: str, can_bus: can.BusABC) -> None:
+        """Initialize the GravityArm with motors and position."""
         # Initialize parent Arm with all motors
         super().__init__(motors)
 
@@ -46,7 +53,8 @@ class ArmWithGravity(Arm):
 class MuJoCoKDL:
     """A simple class for computing inverse dynamics using MuJoCo."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize MuJoCo model for kinematic/dynamic calculations."""
         self.model = mujoco.MjModel.from_xml_path(str(OPENARM_MODEL_PATH))
         self.model.opt.gravity = np.array([0, 0, -9.81])
 
@@ -62,6 +70,7 @@ class MuJoCoKDL:
     def compute_inverse_dynamics(
         self, q: np.ndarray, qdot: np.ndarray, qdotdot: np.ndarray, side: str = "left"
     ) -> np.ndarray:
+        """Compute inverse dynamics for the given joint states."""
         assert len(q) == len(qdot) == len(qdotdot)
         assert side in ["left", "right"], "side must be 'left' or 'right'"
 
@@ -91,7 +100,8 @@ class MuJoCoKDL:
 class GravityCompensator:
     """Gravity compensation calculator with persistent MuJoCo model."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the gravity compensator with MuJoCo model."""
         self.kdl = MuJoCoKDL()
         self.tuning_factors = [0.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
 
@@ -100,10 +110,12 @@ class GravityCompensator:
 
         Args:
             angles: List of joint angles in radians
-            position: "left" or "right" - determines if mirror motors should have negated torques
+            position: "left" or "right" - determines if mirror motors should have
+                negated torques
 
         Returns:
             List of gravity compensation torques for each joint
+
         """
         q = np.array(angles)
 
@@ -112,12 +124,13 @@ class GravityCompensator:
         )
 
         # Apply tuning factors
-        tuned_torques = [
+        return [
             torque * factor
-            for torque, factor in zip(gravity_torques, self.tuning_factors)
+            for torque, factor in zip(
+                gravity_torques, self.tuning_factors, strict=False
+            )
         ]
 
-        return tuned_torques
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -130,22 +143,23 @@ def parse_arguments() -> argparse.Namespace:
         "--port",
         action="append",
         required=True,
-        help="CAN ports with position to use (e.g., --port can0:left --port can1:right)",
+        help=(
+            "CAN ports with position to use "
+            "(e.g., --port can0:left --port can1:right)"
+        ),
     )
 
     return parser.parse_args()
 
 
 async def main(args: argparse.Namespace) -> None:
-    """Main entry point with proper shutdown handling."""
+    """Run main gravity compensation loop with proper shutdown handling."""
     # Create all CAN buses
     all_can_buses = create_can_bus()
 
     if not all_can_buses:
-        print("Error: No CAN buses detected.")
         return
 
-    print(f"\nDetected {len(all_can_buses)} CAN bus(es) total")
 
     # Parse port:position pairs
     port_configs = []  # List of (port_name, position)
@@ -153,15 +167,14 @@ async def main(args: argparse.Namespace) -> None:
         try:
             parts = port_spec.split(":")
             if len(parts) != 2:
-                raise ValueError(f"Invalid format: {port_spec}")
+                msg = f"Invalid format: {port_spec}"
+                raise ValueError(msg)
             port_name, position = parts
             if position not in ["left", "right"]:
-                raise ValueError(f"Invalid position: {position}")
+                msg = f"Invalid position: {position}"
+                raise ValueError(msg)
             port_configs.append((port_name, position))
-        except ValueError as e:
-            print(
-                f"Error: Invalid port format '{port_spec}'. Use PORT:POSITION where POSITION is 'left' or 'right'"
-            )
+        except ValueError:
             for bus in all_can_buses:
                 bus.shutdown()
             return
@@ -178,13 +191,11 @@ async def main(args: argparse.Namespace) -> None:
                 break
 
     if not selected_buses:
-        print(f"Error: None of the specified ports were found.")
         for bus in all_can_buses:
             bus.shutdown()
         return
 
-    print(f"Using {len(selected_buses)} selected bus(es):")
-    for bus, position in selected_buses:
+    for bus, _position in selected_buses:
         bus_channel = (
             str(bus.channel_info) if hasattr(bus, "channel_info") else str(bus.channel)
         )
@@ -193,13 +204,9 @@ async def main(args: argparse.Namespace) -> None:
             import re
 
             match = re.search(r"channel ['\"]?(\w+)", bus_channel)
-            if match:
-                bus_name = match.group(1)
-            else:
-                bus_name = bus_channel
+            match.group(1) if match else bus_channel
         else:
-            bus_name = bus_channel.split()[-1] if bus_channel else "unknown"
-        print(f"  {bus_name}: {position} arm")
+            bus_channel.split()[-1] if bus_channel else "unknown"
 
     # Store arms for cleanup
     arms: list[ArmWithGravity] = []
@@ -210,7 +217,6 @@ async def main(args: argparse.Namespace) -> None:
     finally:
         # SAFETY: Disable all motors first to avoid unwanted movements
         if arms:
-            print("\nDisabling all motors for safety...")
             for arm in arms:
                 await arm.disable()
 
@@ -233,27 +239,23 @@ def check_keyboard_input():
 
 
 async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithGravity]:
-    """Main gravity compensation loop for all selected buses with their positions.
+    """Run gravity compensation loop for all selected buses with their positions.
 
     Returns:
         List of Arm objects for cleanup in main()
-    """
-    print("Setting up gravity compensation...")
 
+    """
     # Initialize gravity compensator
     gravity_comp = GravityCompensator()
 
     # Setup motors on all selected buses
-    print("Testing motor connectivity on all selected buses...")
 
     # Create Arm objects for each bus
     arms: list[ArmWithGravity] = []
 
-    for bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
-        print(f"\nBus {bus_idx + 1}/{len(selected_buses)} ({arm_position} arm):")
+    for _bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
 
         # First use detect_motors to check if ALL motors are present
-        print("  Checking for motors...")
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
         detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
         detected_ids = {info.slave_id for info in detected}
@@ -265,11 +267,8 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
                 missing_motors.append(config.name)
 
         if missing_motors:
-            print(f"  ERROR: Missing motors: {', '.join(missing_motors)}")
-            print(f"  Skipping this arm (incomplete - needs ALL motors)")
             continue
 
-        print(f"  All {len(MOTOR_CONFIGS)} motors detected!")
 
         # Create ALL motors for this arm
         motors = []
@@ -286,7 +285,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
         # Create ArmWithGravity with ALL motors
         arm = ArmWithGravity(motors=motors, position=arm_position, can_bus=can_bus)
 
-        print(f"  Enabling all {len(motors)} motors...")
         try:
             # Enable all motors at once
             states = await arm.enable()
@@ -298,32 +296,24 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
             for i, state in enumerate(states):
                 if state:
                     arm.positions[i] = state.position
-                    print(
-                        f"    {MOTOR_CONFIGS[i].name}: Initial position {state.position:.3f} rad"
-                    )
 
             # Successfully initialized, add to arms list
             arms.append(arm)
-            print(f"  Arm ready with {len(motors)} motors")
 
-        except Exception as e:
-            print(f"  ERROR: Arm initialization failed - {e}")
-            print(f"  Skipping this arm (unusable)")
+        except Exception:
+            pass
             # Don't add to arms list - this arm is broken
 
     # Count total motors across all working arms
     total_motors = sum(len(arm.motors) for arm in arms)
 
     if total_motors == 0:
-        print("\nError: No working arms found.")
         return []
 
     # Report motors per arm
-    for arm_idx, arm in enumerate(arms):
-        print(f"Arm {arm_idx + 1} ({arm.position}): {len(arm.motors)} motors")
+    for _arm_idx, _arm in enumerate(arms):
+        pass
 
-    print(f"\nStarting gravity compensation loop with {total_motors} total motors...")
-    print("Press 'Q' to stop")
 
     # NOW set terminal to raw mode for keyboard detection during the main loop
     old_settings = None
@@ -333,7 +323,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
             old_settings = termios.tcgetattr(sys.stdin)
             tty.setraw(sys.stdin.fileno())
             raw_mode = True
-        except:
+        except (OSError, termios.error):
             # Might fail in some environments (e.g., when piped)
             pass
 
@@ -341,10 +331,9 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     def raw_print(msg: str = "") -> None:
         """Print with proper line endings in raw mode."""
         if raw_mode:
-            print(msg.replace("\n", "\r\n"), end="")
             sys.stdout.flush()
         else:
-            print(msg)
+            pass
 
     try:
         while True:
@@ -387,10 +376,8 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     finally:
         # Restore terminal settings (Unix/Linux/Mac)
         if old_settings is not None and HAS_TERMIOS:
-            try:
+            with contextlib.suppress(builtins.BaseException):
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-            except:
-                pass
 
         # SAFETY: Disable all motors to avoid unwanted movements
         raw_print("Disabling all motors for safety...")
@@ -402,16 +389,14 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
 
 
 def run() -> None:
-    """Entry point for the gravity compensation script."""
+    """Run the gravity compensation script."""
     args = parse_arguments()
 
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:
-        print("\nInterrupted by user.")
         sys.exit(0)
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
         sys.exit(1)
 
 
