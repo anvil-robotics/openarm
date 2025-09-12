@@ -33,7 +33,6 @@ import can
 from openarm.bus import Bus
 
 from . import ControlMode, MitControlParams, Motor, PosVelControlParams
-from .can_buses import create_can_bus
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 from .gravity import GravityCompensator
@@ -121,7 +120,14 @@ class Arm:
 async def main(args: argparse.Namespace) -> None:
     """Run the monitor with the provided arguments."""
     # Create CAN buses
-    can_buses = create_can_bus(args.interface)
+    try:
+        can_buses = [
+            can.Bus(channel=config["channel"], interface=config["interface"])
+            for config in can.detect_available_configs("socketcan")
+        ]
+    except Exception:
+        can_buses = []
+
     if not can_buses:
         return None
 

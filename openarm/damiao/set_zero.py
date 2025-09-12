@@ -5,10 +5,11 @@ import argparse
 import asyncio
 import sys
 
+import can
+
 from openarm.bus import Bus
 
 from . import Motor
-from .can_buses import create_can_bus
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 
@@ -22,7 +23,14 @@ RESET = "\033[0m"
 async def main(args: argparse.Namespace) -> None:
     """Set zero position for all motors."""
     # Create CAN buses
-    can_buses = create_can_bus(args.interface)
+    try:
+        can_buses = [
+            can.Bus(channel=config["channel"], interface=config["interface"])
+            for config in can.detect_available_configs("socketcan")
+        ]
+    except Exception:
+        can_buses = []
+
     if not can_buses:
         print(f"{RED}Error: No CAN buses detected.{RESET}")
         return None

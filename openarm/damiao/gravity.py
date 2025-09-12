@@ -32,7 +32,6 @@ import can
 
 from openarm.bus import Bus
 from openarm.damiao import Arm, ControlMode, Motor, detect_motors
-from openarm.damiao.can_buses import create_can_bus
 from openarm.damiao.config import MOTOR_CONFIGS
 from openarm.simulation.models import OPENARM_MODEL_PATH
 
@@ -154,7 +153,13 @@ def parse_arguments() -> argparse.Namespace:
 async def main(args: argparse.Namespace) -> None:
     """Run main gravity compensation loop with proper shutdown handling."""
     # Create all CAN buses
-    all_can_buses = create_can_bus()
+    try:
+        all_can_buses = [
+            can.Bus(channel=config["channel"], interface=config["interface"])
+            for config in can.detect_available_configs("socketcan")
+        ]
+    except Exception:
+        all_can_buses = []
 
     if not all_can_buses:
         return
