@@ -2,11 +2,12 @@
 
 This script disables all Damiao motors and displays their current angles.
 """
-# ruff: noqa: T201, E501, C901, BLE001, PLR0912, TRY400, ARG001, PLC0415, SIM108, TRY301, TRY003, EM102, PLR2004
+# ruff: noqa: T201, E501, BLE001, PLR0912, TRY301
 
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from dataclasses import dataclass, field
 from math import pi
@@ -41,6 +42,9 @@ from .gravity import GravityCompensator
 RED = "\033[91m"
 GREEN = "\033[92m"
 RESET = "\033[0m"
+
+# Constants
+FOLLOW_SPEC_PARTS = 4  # MASTER:POSITION:SLAVE:POSITION
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -98,7 +102,7 @@ class Arm:
                     logger.info("Motor %d: Enabled", idx + 1)
                     print(f"    Motor {idx + 1}: Enabled")
                 except Exception as e:
-                    logger.error("Motor %d: Error - %s", idx + 1, e)
+                    logger.exception("Motor %d: Error", idx + 1)
                     print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")
 
     async def refresh_states(self) -> None:
@@ -140,7 +144,7 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
-async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
+async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901
     # Detect motors on each bus
     all_bus_motors = []
     has_missing_motor = False
@@ -228,7 +232,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
                     state = await motor.disable()
                     bus_states.append(state)
                 except Exception as e:
-                    logger.error("Error disabling motor on bus %d: %s", bus_idx + 1, e)
+                    logger.exception("Error disabling motor on bus %d", bus_idx + 1)
                     print(
                         f"{RED}Error disabling motor on bus {bus_idx + 1}: {e}{RESET}"
                     )
@@ -241,14 +245,13 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
     if args.teleop:
         await teleop(can_buses, all_bus_motors, all_state_results, args)
     else:
-        await monitor_motors(can_buses, all_bus_motors, all_state_results, args)
+        await monitor_motors(can_buses, all_bus_motors, all_state_results)
 
 
-async def monitor_motors(
+async def monitor_motors(  # noqa: C901
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
     all_state_results: list[list],
-    args: argparse.Namespace,
 ) -> None:
     """Monitor motor angles continuously and display them in a table format.
 
@@ -256,7 +259,6 @@ async def monitor_motors(
         can_buses: List of CAN bus interfaces.
         all_bus_motors: List of motor lists for each bus.
         all_state_results: Initial state results for each motor.
-        args: Command-line arguments.
 
     """
     # Start continuous monitoring with column display
@@ -328,7 +330,7 @@ async def monitor_motors(
         print("\nMonitoring stopped.")
 
 
-async def teleop(
+async def teleop(  # noqa: C901
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
     all_state_results: list[list],
@@ -357,13 +359,8 @@ async def teleop(
         # Extract channel name (e.g., "can0" from various formats)
         if "channel" in channel_info:
             # For socketcan: extract from "SocketcanBus channel 'can0'"
-            import re
-
             match = re.search(r"channel ['\"]?(\w+)", channel_info)
-            if match:
-                channel_name = match.group(1)
-            else:
-                channel_name = f"bus{bus_idx}"
+            channel_name = match.group(1) if match else f"bus{bus_idx}"
         else:
             # For USB devices, use the product name or bus index
             channel_name = channel_info.split()[-1] if channel_info else f"bus{bus_idx}"
@@ -385,17 +382,20 @@ async def teleop(
         for follow_spec in args.follow:
             try:
                 parts = follow_spec.split(":")
-                if len(parts) != 4:
-                    raise ValueError(f"Invalid format: {follow_spec}")
+                if len(parts) != FOLLOW_SPEC_PARTS:
+                    msg = f"Invalid format: {follow_spec}"
+                    raise ValueError(msg)
 
                 # Parse MASTER:POSITION:SLAVE:POSITION
                 master_ch, master_pos, slave_ch, slave_pos = parts
 
                 # Validate positions
                 if master_pos not in ["left", "right"]:
-                    raise ValueError(f"Invalid master position: {master_pos}")
+                    msg = f"Invalid master position: {master_pos}"
+                    raise ValueError(msg)
                 if slave_pos not in ["left", "right"]:
-                    raise ValueError(f"Invalid slave position: {slave_pos}")
+                    msg = f"Invalid slave position: {slave_pos}"
+                    raise ValueError(msg)
 
                 # Validate channels exist
                 if master_ch not in channel_to_arm:
@@ -489,12 +489,8 @@ async def teleop(
     # Print header with bus labels showing channel names and roles
     header = "  Motor"
     for arm in arms:
-        if arm.is_slave:
-            # Slave: show S* for mirror mode, S for normal
-            role = "S*" if arm.mirror_mode else "S"
-        else:
-            # Master
-            role = "M"
+        # Slave: show S* for mirror mode, S for normal; Master: M
+        role = ("S*" if arm.mirror_mode else "S") if arm.is_slave else "M"
         header += f"   {arm.channel}({role})   "
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -743,7 +739,7 @@ def run() -> None:
         print("\nInterrupted by user.")
         sys.exit(0)
     except Exception as e:
-        logger.error("Fatal error: %s", e)
+        logger.exception("Fatal error")
         print(f"Error: {e}")
         sys.exit(1)
 

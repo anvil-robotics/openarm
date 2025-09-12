@@ -1,8 +1,8 @@
 """Gravity compensation for robotic arms using MuJoCo physics simulation."""
-# ruff: noqa: BLE001, C901, PLR0912, SIM108, SIM102, TRY301, PLC0415, PLR2004, ANN201, ARG001, PERF401, S110
 
 import argparse
 import asyncio
+import re
 import sys
 
 import mujoco
@@ -76,7 +76,7 @@ class MuJoCoKDL:
 
         length = len(q)
 
-        if side == "left":
+        if side == "left":  # noqa: SIM108
             # Left joints: indices 0-7 (8 motors)
             joint_indices = slice(0, length)
         else:  # right
@@ -150,7 +150,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def main(args: argparse.Namespace) -> None:
+async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
     """Run main gravity compensation loop with proper shutdown handling."""
     # Create all CAN buses
     try:
@@ -158,7 +158,7 @@ async def main(args: argparse.Namespace) -> None:
             can.Bus(channel=config["channel"], interface=config["interface"])
             for config in can.detect_available_configs("socketcan")
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001
         all_can_buses = []
 
     if not all_can_buses:
@@ -169,13 +169,13 @@ async def main(args: argparse.Namespace) -> None:
     for port_spec in args.port:
         try:
             parts = port_spec.split(":")
-            if len(parts) != 2:
+            if len(parts) != 2:  # noqa: PLR2004
                 msg = f"Invalid format: {port_spec}"
-                raise ValueError(msg)
+                raise ValueError(msg)  # noqa: TRY301
             port_name, position = parts
             if position not in ["left", "right"]:
                 msg = f"Invalid position: {position}"
-                raise ValueError(msg)
+                raise ValueError(msg)  # noqa: TRY301
             port_configs.append((port_name, position))
         except ValueError:
             for bus in all_can_buses:
@@ -204,8 +204,6 @@ async def main(args: argparse.Namespace) -> None:
         )
         # Extract just the channel name for cleaner display
         if "channel" in bus_channel:
-            import re
-
             match = re.search(r"channel ['\"]?(\w+)", bus_channel)
             match.group(1) if match else bus_channel
         else:
@@ -228,20 +226,20 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
-def check_keyboard_input():
+def check_keyboard_input():  # noqa: ANN201
     """Check if a key has been pressed (non-blocking)."""
     if HAS_MSVCRT:
         # Windows
         if msvcrt.kbhit():
             return msvcrt.getch().decode("utf-8", errors="ignore").lower()
-    elif HAS_TERMIOS:
+    elif HAS_TERMIOS:  # noqa: SIM102
         # Unix/Linux/Mac
         if select.select([sys.stdin], [], [], 0)[0]:
             return sys.stdin.read(1).lower()
     return None
 
 
-async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithGravity]:
+async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithGravity]:  # noqa: C901, PLR0912, ARG001
     """Run gravity compensation loop for all selected buses with their positions.
 
     Returns:
@@ -266,7 +264,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
         missing_motors = []
         for config in MOTOR_CONFIGS:
             if config.slave_id not in detected_ids:
-                missing_motors.append(config.name)
+                missing_motors.append(config.name)  # noqa: PERF401
 
         if missing_motors:
             continue
@@ -301,7 +299,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
             # Successfully initialized, add to arms list
             arms.append(arm)
 
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
             # Don't add to arms list - this arm is broken
 
@@ -331,9 +329,10 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     def raw_print(msg: str = "") -> None:
         """Print with proper line endings in raw mode."""
         if raw_mode:
+            print(msg.replace("\n", "\r\n"), end="")  # noqa: T201
             sys.stdout.flush()
         else:
-            pass
+            print(msg)  # noqa: T201
 
     try:
         while True:
@@ -362,7 +361,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
                         if state:
                             arm.positions[i] = state.position
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     raw_print(f"Error in batch control on arm {arm_idx + 1}: {e}")
 
             # Small delay
@@ -370,7 +369,7 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
 
         raw_print("\nStopping gravity compensation...")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raw_print(f"\nError in gravity compensation loop: {e}")
 
     finally:
@@ -396,7 +395,7 @@ def run() -> None:
         asyncio.run(main(args))
     except KeyboardInterrupt:
         sys.exit(0)
-    except Exception:
+    except Exception:  # noqa: BLE001
         sys.exit(1)
 
 

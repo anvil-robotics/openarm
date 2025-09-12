@@ -37,6 +37,7 @@ python -m openarm.damiao.monitor -t --follow can1:left:can2:right --gravity --ve
 ```
 
 Options:
+
 - `-t, --teleop`: Enable teleoperation mode
 - `--follow MASTER:POS:SLAVE:POS`: Define master-slave mappings (POS is 'left' or 'right')
   - Mirror mode is automatic when positions differ
@@ -54,7 +55,6 @@ python -m openarm.damiao.gravity --port can0:left
 # Multiple arms
 python -m openarm.damiao.gravity --port can0:left --port can1:right
 ```
-
 
 # Planned Architecture
 
