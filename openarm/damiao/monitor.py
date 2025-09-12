@@ -639,7 +639,7 @@ async def teleop(  # noqa: C901, PLR0912
                                 if (
                                     slave_arm.mirror_mode
                                     and motor_idx < len(MOTOR_CONFIGS)
-                                    and MOTOR_CONFIGS[motor_idx].mirror
+                                    and MOTOR_CONFIGS[motor_idx].inverted
                                 ):
                                     position = -position
 
