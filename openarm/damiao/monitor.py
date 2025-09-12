@@ -2,7 +2,6 @@
 
 This script disables all Damiao motors and displays their current angles.
 """
-# ruff: noqa: T201, E501, BLE001, PLR0912, TRY301
 
 import argparse
 import asyncio
@@ -89,7 +88,7 @@ class Arm:
             if motor is not None:
                 try:
                     await motor.disable()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.debug("Failed to disable motor: %s", e)
 
     async def enable_all_motors(self, control_mode: ControlMode) -> None:
@@ -100,10 +99,10 @@ class Arm:
                     await motor.enable()
                     await motor.set_control_mode(control_mode)
                     logger.info("Motor %d: Enabled", idx + 1)
-                    print(f"    Motor {idx + 1}: Enabled")
+                    print(f"    Motor {idx + 1}: Enabled")  # noqa: T201
                 except Exception as e:
                     logger.exception("Motor %d: Error", idx + 1)
-                    print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")
+                    print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")  # noqa: T201
 
     async def refresh_states(self) -> None:
         """Refresh states for all motors."""
@@ -113,7 +112,7 @@ class Arm:
                 try:
                     state = await motor.refresh_status()
                     new_states.append(state)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.debug("Failed to refresh motor status: %s", e)
                     new_states.append(None)
             else:
@@ -129,13 +128,13 @@ async def main(args: argparse.Namespace) -> None:
             can.Bus(channel=config["channel"], interface=config["interface"])
             for config in can.detect_available_configs("socketcan")
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001
         can_buses = []
 
     if not can_buses:
         return None
 
-    print(f"\nDetected {len(can_buses)} CAN bus(es)")
+    print(f"\nDetected {len(can_buses)} CAN bus(es)")  # noqa: T201
 
     try:
         return await _main(args, can_buses)
@@ -144,19 +143,19 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
-async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901
+async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901, PLR0912
     # Detect motors on each bus
     all_bus_motors = []
     has_missing_motor = False
 
     for bus_idx, can_bus in enumerate(can_buses):
-        print(f"\nScanning for motors on bus {bus_idx + 1}...")
+        print(f"\nScanning for motors on bus {bus_idx + 1}...")  # noqa: T201
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
 
         # Detect motors using raw CAN bus
         detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
 
-        print(f"\nBus {bus_idx + 1} Motor Status:")
+        print(f"\nBus {bus_idx + 1} Motor Status:")  # noqa: T201
 
         # Create lookup for detected motors by slave ID
         detected_lookup = {info.slave_id: info for info in detected}
@@ -166,7 +165,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
         for config in MOTOR_CONFIGS:
             if config.slave_id not in detected_lookup:
                 # Motor is not detected
-                print(
+                print(  # noqa: T201
                     f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
                     f"(Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}"
                 )
@@ -175,7 +174,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
             elif detected_lookup[config.slave_id].master_id != config.master_id:
                 # Motor is detected but master ID doesn't match
                 detected_info = detected_lookup[config.slave_id]
-                print(
+                print(  # noqa: T201
                     f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
                     f"{RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, "
                     f"Got 0x{detected_info.master_id:02X}]{RESET}"
@@ -184,7 +183,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
                 has_missing_motor = True
             else:
                 # Motor is connected and configured correctly
-                print(
+                print(  # noqa: T201
                     f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} "
                     f"(Master: 0x{config.master_id:02X})"
                 )
@@ -202,7 +201,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
 
     # Exit if any motor is missing
     if has_missing_motor:
-        print(
+        print(  # noqa: T201
             f"\n{RED}Error: Not all motors are detected or configured "
             f"correctly. Exiting.{RESET}"
         )
@@ -213,16 +212,16 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
         1 for bus_motors in all_bus_motors for m in bus_motors if m is not None
     )
     if total_motors == 0:
-        print(f"\n{RED}Error: No motors detected on any bus.{RESET}")
+        print(f"\n{RED}Error: No motors detected on any bus.{RESET}")  # noqa: T201
         return
 
-    print(
+    print(  # noqa: T201
         f"\n{GREEN}Total {total_motors} motors detected across "
         f"{len(can_buses)} bus(es){RESET}"
     )
 
     # Disable all motors on all buses
-    print("\nDisabling all motors...")
+    print("\nDisabling all motors...")  # noqa: T201
     all_state_results = []
     for bus_idx, bus_motors in enumerate(all_bus_motors):
         bus_states = []
@@ -233,7 +232,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
                     bus_states.append(state)
                 except Exception as e:
                     logger.exception("Error disabling motor on bus %d", bus_idx + 1)
-                    print(
+                    print(  # noqa: T201
                         f"{RED}Error disabling motor on bus {bus_idx + 1}: {e}{RESET}"
                     )
                     bus_states.append(None)
@@ -248,7 +247,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
         await monitor_motors(can_buses, all_bus_motors, all_state_results)
 
 
-async def monitor_motors(  # noqa: C901
+async def monitor_motors(  # noqa: C901, PLR0912
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
     all_state_results: list[list],
@@ -262,21 +261,21 @@ async def monitor_motors(  # noqa: C901
 
     """
     # Start continuous monitoring with column display
-    print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")
+    print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")  # noqa: T201
 
     # Print header with bus labels
     header = "  Motor"
     for bus_idx in range(len(can_buses)):
         header += f"        Bus {bus_idx + 1}     "
-    print(header)
-    print("  " + "-" * (len(header) - 2))
+    print(header)  # noqa: T201
+    print("  " + "-" * (len(header) - 2))  # noqa: T201
 
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in range(len(can_buses)):
             line += "  Initializing...  "
-        print(line)
+        print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
@@ -287,7 +286,7 @@ async def monitor_motors(  # noqa: C901
     try:
         while True:
             # Move cursor up to the first motor line
-            print(f"\033[{num_motors}A", end="")
+            print(f"\033[{num_motors}A", end="")  # noqa: T201
 
             # Print current states for all buses
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
@@ -302,7 +301,7 @@ async def monitor_motors(  # noqa: C901
                         line += "       N/A        "
                     else:
                         line += "    No state      "
-                print(line + "\033[K")
+                print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
             await asyncio.sleep(0.1)
@@ -316,7 +315,7 @@ async def monitor_motors(  # noqa: C901
                         try:
                             state = await motor.refresh_status()
                             bus_states.append(state)
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001
                             logger.debug("Failed to refresh motor status: %s", e)
                             bus_states.append(None)
                     else:
@@ -326,11 +325,11 @@ async def monitor_motors(  # noqa: C901
 
     except KeyboardInterrupt:
         # Move cursor below all motor lines
-        print(f"\033[{num_motors}B")
-        print("\nMonitoring stopped.")
+        print(f"\033[{num_motors}B")  # noqa: T201
+        print("\nMonitoring stopped.")  # noqa: T201
 
 
-async def teleop(  # noqa: C901
+async def teleop(  # noqa: C901, PLR0912
     can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
     all_state_results: list[list],
@@ -340,7 +339,7 @@ async def teleop(  # noqa: C901
     # Initialize gravity compensator if enabled
     gravity_comp = None
     if args.gravity:
-        print("Initializing gravity compensation...")
+        print("Initializing gravity compensation...")  # noqa: T201
         gravity_comp = GravityCompensator()
 
     # Create Arm objects for each bus
@@ -375,7 +374,7 @@ async def teleop(  # noqa: C901
         )
         arms.append(arm)
         channel_to_arm[channel_name] = arm
-        print(f"Bus {bus_idx + 1}: Channel '{channel_name}'")
+        print(f"Bus {bus_idx + 1}: Channel '{channel_name}'")  # noqa: T201
 
     # Parse --follow arguments if provided
     if args.follow:
@@ -384,7 +383,7 @@ async def teleop(  # noqa: C901
                 parts = follow_spec.split(":")
                 if len(parts) != FOLLOW_SPEC_PARTS:
                     msg = f"Invalid format: {follow_spec}"
-                    raise ValueError(msg)
+                    raise ValueError(msg)  # noqa: TRY301
 
                 # Parse MASTER:POSITION:SLAVE:POSITION
                 master_ch, master_pos, slave_ch, slave_pos = parts
@@ -392,17 +391,17 @@ async def teleop(  # noqa: C901
                 # Validate positions
                 if master_pos not in ["left", "right"]:
                     msg = f"Invalid master position: {master_pos}"
-                    raise ValueError(msg)
+                    raise ValueError(msg)  # noqa: TRY301
                 if slave_pos not in ["left", "right"]:
                     msg = f"Invalid slave position: {slave_pos}"
-                    raise ValueError(msg)
+                    raise ValueError(msg)  # noqa: TRY301
 
                 # Validate channels exist
                 if master_ch not in channel_to_arm:
-                    print(f"{RED}Error: Master channel '{master_ch}' not found{RESET}")
+                    print(f"{RED}Error: Master channel '{master_ch}' not found{RESET}")  # noqa: T201
                     return
                 if slave_ch not in channel_to_arm:
-                    print(f"{RED}Error: Slave channel '{slave_ch}' not found{RESET}")
+                    print(f"{RED}Error: Slave channel '{slave_ch}' not found{RESET}")  # noqa: T201
                     return
 
                 # Get Arm objects
@@ -411,8 +410,8 @@ async def teleop(  # noqa: C901
 
                 # Check for conflicts
                 if slave_arm.is_slave:
-                    print(
-                        f"{RED}Error: Slave '{slave_ch}' already follows '{slave_arm.follows}'{RESET}"
+                    print(  # noqa: T201
+                        f"{RED}Error: Slave '{slave_ch}' already follows '{slave_arm.follows}'{RESET}"  # noqa: E501
                     )
                     return
 
@@ -429,19 +428,19 @@ async def teleop(  # noqa: C901
                 )  # Auto-detect mirror mode
 
             except ValueError:
-                print(
-                    f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}"
+                print(  # noqa: T201
+                    f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}"  # noqa: E501
                 )
-                print(
-                    f"{RED}Example: --follow can0:left:can1:right (mirror) or --follow can0:left:can1:left (no mirror){RESET}"
+                print(  # noqa: T201
+                    f"{RED}Example: --follow can0:left:can1:right (mirror) or --follow can0:left:can1:left (no mirror){RESET}"  # noqa: E501
                 )
                 return
 
         # Validate no channel is both master and slave
         for arm in arms:
             if arm.is_master and arm.is_slave:
-                print(
-                    f"{RED}Error: Channel {arm.channel} cannot be both master and slave{RESET}"
+                print(  # noqa: T201
+                    f"{RED}Error: Channel {arm.channel} cannot be both master and slave{RESET}"  # noqa: E501
                 )
                 return
     # Default behavior: first arm is master, others are slaves
@@ -456,7 +455,7 @@ async def teleop(  # noqa: C901
             slave_arm.mirror_mode = False  # Default: no mirror
             slave_arm.position = "left"  # Default position
 
-    print("\nMaster-Slave Configuration:")
+    print("\nMaster-Slave Configuration:")  # noqa: T201
     # Group slaves by master
     for master_arm in [arm for arm in arms if arm.is_master]:
         slaves = []
@@ -467,24 +466,24 @@ async def teleop(  # noqa: C901
             slave_str = f"{slave_arm.channel}:{slave_arm.position}{mirror_str}"
             slaves.append(slave_str)
         if slaves:
-            print(
-                f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}"
+            print(  # noqa: T201
+                f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}"  # noqa: E501
             )
 
     # Enable all motors (masters with MIT, slaves with PosVel)
-    print("\nEnabling motors for teleoperation...")
+    print("\nEnabling motors for teleoperation...")  # noqa: T201
     for arm in arms:
         if arm.is_slave:
-            print(
-                f"  {arm.channel}: Enabling motors with Position-Velocity control (slave)"
+            print(  # noqa: T201
+                f"  {arm.channel}: Enabling motors with Position-Velocity control (slave)"  # noqa: E501
             )
             await arm.enable_all_motors(ControlMode.POS_VEL)
         else:  # master
-            print(f"  {arm.channel}: Enabling motors with MIT control (master)")
+            print(f"  {arm.channel}: Enabling motors with MIT control (master)")  # noqa: T201
             await arm.enable_all_motors(ControlMode.MIT)
 
     # Start teleoperation with monitoring display
-    print("\nTeleoperation mode starting...\n")
+    print("\nTeleoperation mode starting...\n")  # noqa: T201
 
     # Print header with bus labels showing channel names and roles
     header = "  Motor"
@@ -492,21 +491,21 @@ async def teleop(  # noqa: C901
         # Slave: show S* for mirror mode, S for normal; Master: M
         role = ("S*" if arm.mirror_mode else "S") if arm.is_slave else "M"
         header += f"   {arm.channel}({role})   "
-    print(header)
-    print("  " + "-" * (len(header) - 2))
+    print(header)  # noqa: T201
+    print("  " + "-" * (len(header) - 2))  # noqa: T201
 
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in arms:
             line += "  Initializing...  "
-        print(line)
+        print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
     num_motors = len(MOTOR_CONFIGS)
 
     # Print stop instruction before entering raw mode
-    print("Press 'Q' to stop" if HAS_TERMIOS else "Press Ctrl+C to stop")
+    print("Press 'Q' to stop" if HAS_TERMIOS else "Press Ctrl+C to stop")  # noqa: T201
 
     # Set terminal to raw mode for keyboard detection
     old_settings = None
@@ -523,10 +522,10 @@ async def teleop(  # noqa: C901
     # Helper for raw mode printing
     def raw_print(msg: str = "") -> None:
         if raw_mode:
-            print(msg.replace("\n", "\r\n"), end="")
+            print(msg.replace("\n", "\r\n"), end="")  # noqa: T201
             sys.stdout.flush()
         else:
-            print(msg)
+            print(msg)  # noqa: T201
 
     try:
         # Small initial delay to ensure display is ready
@@ -541,7 +540,7 @@ async def teleop(  # noqa: C901
                     break
 
             # Move cursor up to the first motor line (add +1 for the "Press Q" line)
-            print(f"\033[{num_motors + 1}A", end="")
+            print(f"\033[{num_motors + 1}A", end="")  # noqa: T201
 
             # Print current states for all arms
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
@@ -562,7 +561,7 @@ async def teleop(  # noqa: C901
                             line += "    No state      "
                     else:
                         line += "       N/A        "
-                print(line + "\033[K")
+                print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
             await asyncio.sleep(0.01)
@@ -613,7 +612,7 @@ async def teleop(  # noqa: C901
                             )
                             state = await motor.control_mit(params)
                             new_states.append(state)
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001
                             logger.debug("MIT control failed: %s", e)
                             new_states.append(None)
                     else:
@@ -636,7 +635,7 @@ async def teleop(  # noqa: C901
                                 # Get master position
                                 position = master_state.position
 
-                                # Apply mirror if enabled for this slave AND motor supports it
+                                # Apply mirror if enabled for this slave AND motor supports it  # noqa: E501
                                 if (
                                     slave_arm.mirror_mode
                                     and motor_idx < len(MOTOR_CONFIGS)
@@ -650,7 +649,7 @@ async def teleop(  # noqa: C901
                                 )
                                 state = await slave_motor.control_pos_vel(params)
                                 new_states.append(state)
-                            except Exception as e:
+                            except Exception as e:  # noqa: BLE001
                                 logger.debug("Position-velocity control failed: %s", e)
                                 new_states.append(None)
                         else:
@@ -659,9 +658,9 @@ async def teleop(  # noqa: C901
 
     except KeyboardInterrupt:
         # Move cursor below all motor lines
-        print(f"\033[{num_motors}B")
+        print(f"\033[{num_motors}B")  # noqa: T201
         if not raw_mode:
-            print("\nTeleoperation stopped.")
+            print("\nTeleoperation stopped.")  # noqa: T201
         else:
             raw_print("\nTeleoperation stopped.")
 
@@ -674,10 +673,10 @@ async def teleop(  # noqa: C901
                 logger.debug("Failed to restore terminal settings: %s", e)
 
         # SAFETY: Disable ALL motors (not just slaves) for safety
-        print("\nDisabling ALL motors for safety...")
+        print("\nDisabling ALL motors for safety...")  # noqa: T201
         for arm in arms:
             await arm.disable_all_motors()
-        print("All motors disabled.")
+        print("All motors disabled.")  # noqa: T201
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -736,11 +735,11 @@ def run() -> None:
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:
-        print("\nInterrupted by user.")
+        print("\nInterrupted by user.")  # noqa: T201
         sys.exit(0)
     except Exception as e:
         logger.exception("Fatal error")
-        print(f"Error: {e}")
+        print(f"Error: {e}")  # noqa: T201
         sys.exit(1)
 
 

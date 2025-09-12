@@ -76,12 +76,9 @@ class MuJoCoKDL:
 
         length = len(q)
 
-        if side == "left":  # noqa: SIM108
-            # Left joints: indices 0-7 (8 motors)
-            joint_indices = slice(0, length)
-        else:  # right
-            # Right joints: indices 9-16 (8 motors), but input q is still 0-7
-            joint_indices = slice(9, 9 + length)
+        # Left joints: indices 0-7 (8 motors)
+        # Right joints: indices 9-16 (8 motors), but input q is still 0-7
+        joint_indices = slice(0, length) if side == "left" else slice(9, 9 + length)
 
         # Clear all joint states first
         self.data.qpos[:] = 0
@@ -226,16 +223,15 @@ async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
             bus.shutdown()
 
 
-def check_keyboard_input():  # noqa: ANN201
+def check_keyboard_input() -> str | None:
     """Check if a key has been pressed (non-blocking)."""
     if HAS_MSVCRT:
         # Windows
         if msvcrt.kbhit():
             return msvcrt.getch().decode("utf-8", errors="ignore").lower()
-    elif HAS_TERMIOS:  # noqa: SIM102
+    elif HAS_TERMIOS and select.select([sys.stdin], [], [], 0)[0]:
         # Unix/Linux/Mac
-        if select.select([sys.stdin], [], [], 0)[0]:
-            return sys.stdin.read(1).lower()
+        return sys.stdin.read(1).lower()
     return None
 
 
@@ -261,10 +257,11 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
         detected_ids = {info.slave_id for info in detected}
 
         # Check if ALL required motors are detected
-        missing_motors = []
-        for config in MOTOR_CONFIGS:
-            if config.slave_id not in detected_ids:
-                missing_motors.append(config.name)  # noqa: PERF401
+        missing_motors = [
+            config.name
+            for config in MOTOR_CONFIGS
+            if config.slave_id not in detected_ids
+        ]
 
         if missing_motors:
             continue
