@@ -650,7 +650,7 @@ async def teleop(
 
                                 # Always use Position-Velocity control for slaves
                                 params = PosVelControlParams(
-                                    position=position, velocity=1
+                                    position=position, velocity=args.velocity
                                 )
                                 state = await slave_motor.control_pos_vel(params)
                                 new_states.append(state)
@@ -720,6 +720,14 @@ def parse_arguments() -> argparse.Namespace:
         "-g",
         action="store_true",
         help="Enable gravity compensation (MIT mode only)",
+    )
+
+    parser.add_argument(
+        "--velocity",
+        "-v",
+        type=float,
+        default=1.0,
+        help="Velocity parameter for slave motors (default: 1.0)",
     )
 
     return parser.parse_args()
