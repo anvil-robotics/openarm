@@ -16,12 +16,14 @@ try:
     import select
     import termios
     import tty
+
     HAS_TERMIOS = True
 except ImportError:
     HAS_TERMIOS = False
 
 try:
     import msvcrt
+
     HAS_MSVCRT = True
 except ImportError:
     HAS_MSVCRT = False
@@ -131,6 +133,7 @@ async def main(args: argparse.Namespace) -> None:
         for bus in can_buses:
             bus.shutdown()
 
+
 async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
     # Detect motors on each bus
     all_bus_motors = []
@@ -219,9 +222,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
                     state = await motor.disable()
                     bus_states.append(state)
                 except Exception as e:
-                    logger.error(
-                        "Error disabling motor on bus %d: %s", bus_idx + 1, e
-                    )
+                    logger.error("Error disabling motor on bus %d: %s", bus_idx + 1, e)
                     print(
                         f"{RED}Error disabling motor on bus {bus_idx + 1}: {e}{RESET}"
                     )
@@ -235,6 +236,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:
         await teleop(can_buses, all_bus_motors, all_state_results, args)
     else:
         await monitor_motors(can_buses, all_bus_motors, all_state_results, args)
+
 
 async def monitor_motors(
     can_buses: list[can.BusABC],
@@ -337,13 +339,20 @@ async def teleop(
     arms: list[Arm] = []
     channel_to_arm = {}  # Maps channel name to Arm object
 
-    for bus_idx, (can_bus, bus_motors, bus_states) in enumerate(zip(can_buses, all_bus_motors, all_state_results, strict=False)):
+    for bus_idx, (can_bus, bus_motors, bus_states) in enumerate(
+        zip(can_buses, all_bus_motors, all_state_results, strict=False)
+    ):
         # Get channel info from the bus
-        channel_info = str(can_bus.channel_info) if hasattr(can_bus, "channel_info") else str(can_bus.channel)
+        channel_info = (
+            str(can_bus.channel_info)
+            if hasattr(can_bus, "channel_info")
+            else str(can_bus.channel)
+        )
         # Extract channel name (e.g., "can0" from various formats)
         if "channel" in channel_info:
             # For socketcan: extract from "SocketcanBus channel 'can0'"
             import re
+
             match = re.search(r"channel ['\"]?(\w+)", channel_info)
             if match:
                 channel_name = match.group(1)
@@ -359,7 +368,7 @@ async def teleop(
             can_bus=can_bus,
             channel=channel_name,
             motors=bus_motors,
-            states=bus_states
+            states=bus_states,
         )
         arms.append(arm)
         channel_to_arm[channel_name] = arm
@@ -396,7 +405,9 @@ async def teleop(
 
                 # Check for conflicts
                 if slave_arm.is_slave:
-                    print(f"{RED}Error: Slave '{slave_ch}' already follows '{slave_arm.follows}'{RESET}")
+                    print(
+                        f"{RED}Error: Slave '{slave_ch}' already follows '{slave_arm.follows}'{RESET}"
+                    )
                     return
 
                 # Configure master arm
@@ -407,17 +418,25 @@ async def teleop(
                 slave_arm.position = slave_pos
                 slave_arm.is_slave = True
                 slave_arm.follows = master_ch
-                slave_arm.mirror_mode = (master_pos != slave_pos)  # Auto-detect mirror mode
+                slave_arm.mirror_mode = (
+                    master_pos != slave_pos
+                )  # Auto-detect mirror mode
 
             except ValueError:
-                print(f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}")
-                print(f"{RED}Example: --follow can0:left:can1:right (mirror) or --follow can0:left:can1:left (no mirror){RESET}")
+                print(
+                    f"{RED}Error: Invalid follow format '{follow_spec}'. Use MASTER:POSITION:SLAVE:POSITION where POSITION is 'left' or 'right'{RESET}"
+                )
+                print(
+                    f"{RED}Example: --follow can0:left:can1:right (mirror) or --follow can0:left:can1:left (no mirror){RESET}"
+                )
                 return
 
         # Validate no channel is both master and slave
         for arm in arms:
             if arm.is_master and arm.is_slave:
-                print(f"{RED}Error: Channel {arm.channel} cannot be both master and slave{RESET}")
+                print(
+                    f"{RED}Error: Channel {arm.channel} cannot be both master and slave{RESET}"
+                )
                 return
     # Default behavior: first arm is master, others are slaves
     elif len(arms) > 1:
@@ -435,18 +454,24 @@ async def teleop(
     # Group slaves by master
     for master_arm in [arm for arm in arms if arm.is_master]:
         slaves = []
-        for slave_arm in [arm for arm in arms if arm.is_slave and arm.follows == master_arm.channel]:
+        for slave_arm in [
+            arm for arm in arms if arm.is_slave and arm.follows == master_arm.channel
+        ]:
             mirror_str = "(mirror)" if slave_arm.mirror_mode else ""
             slave_str = f"{slave_arm.channel}:{slave_arm.position}{mirror_str}"
             slaves.append(slave_str)
         if slaves:
-            print(f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}")
+            print(
+                f"  Master: {master_arm.channel}:{master_arm.position} -> Slaves: {', '.join(slaves)}"
+            )
 
     # Enable all motors (masters with MIT, slaves with PosVel)
     print("\nEnabling motors for teleoperation...")
     for arm in arms:
         if arm.is_slave:
-            print(f"  {arm.channel}: Enabling motors with Position-Velocity control (slave)")
+            print(
+                f"  {arm.channel}: Enabling motors with Position-Velocity control (slave)"
+            )
             await arm.enable_all_motors(ControlMode.POS_VEL)
         else:  # master
             print(f"  {arm.channel}: Enabling motors with MIT control (master)")
@@ -526,7 +551,10 @@ async def teleop(
                             # Show absolute angle
                             angle_deg = state.position * 180 / pi
                             line += f"  {angle_deg:+8.2f}°     "
-                        elif motor_idx >= len(arm.motors) or arm.motors[motor_idx] is None:
+                        elif (
+                            motor_idx >= len(arm.motors)
+                            or arm.motors[motor_idx] is None
+                        ):
                             line += "       N/A        "
                         else:
                             line += "    No state      "
@@ -549,14 +577,18 @@ async def teleop(
                 if gravity_comp and master_arm.position in ["left", "right"]:
                     # Get only active motor positions (like gravity.py does)
                     active_positions = []
-                    for idx, (motor, state) in enumerate(zip(master_arm.motors, master_arm.states, strict=False)):
+                    for idx, (motor, state) in enumerate(
+                        zip(master_arm.motors, master_arm.states, strict=False)
+                    ):
                         if motor is not None and state:
                             active_positions.append(state.position)
                             active_indices.append(idx)
 
                     if active_positions:
                         # Compute gravity compensation with only active positions
-                        gravity_torques = gravity_comp.compute(active_positions, position=master_arm.position)
+                        gravity_torques = gravity_comp.compute(
+                            active_positions, position=master_arm.position
+                        )
 
                 # Apply MIT control to all motors
                 for motor_idx, motor in enumerate(master_arm.motors):
@@ -571,11 +603,11 @@ async def teleop(
 
                             # MIT control with zero torque or gravity compensation
                             params = MitControlParams(
-                                q=0,         # No position control
-                                dq=0,        # No velocity control
-                                kp=0,        # Zero position gain (passive)
-                                kd=0,        # No damping
-                                tau=torque   # Zero or gravity compensation
+                                q=0,  # No position control
+                                dq=0,  # No velocity control
+                                kp=0,  # Zero position gain (passive)
+                                kd=0,  # No damping
+                                tau=torque,  # Zero or gravity compensation
                             )
                             state = await motor.control_mit(params)
                             new_states.append(state)
@@ -594,20 +626,25 @@ async def teleop(
 
                     # Control each motor
                     new_states = []
-                    for motor_idx, (slave_motor, master_state) in enumerate(zip(slave_arm.motors, master_arm.states, strict=False)):
+                    for motor_idx, (slave_motor, master_state) in enumerate(
+                        zip(slave_arm.motors, master_arm.states, strict=False)
+                    ):
                         if slave_motor and master_state:
                             try:
                                 # Get master position
                                 position = master_state.position
 
                                 # Apply mirror if enabled for this slave AND motor supports it
-                                if slave_arm.mirror_mode and motor_idx < len(MOTOR_CONFIGS) and MOTOR_CONFIGS[motor_idx].mirror:
+                                if (
+                                    slave_arm.mirror_mode
+                                    and motor_idx < len(MOTOR_CONFIGS)
+                                    and MOTOR_CONFIGS[motor_idx].mirror
+                                ):
                                     position = -position
 
                                 # Always use Position-Velocity control for slaves
                                 params = PosVelControlParams(
-                                    position=position,
-                                    velocity=1
+                                    position=position, velocity=1
                                 )
                                 state = await slave_motor.control_pos_vel(params)
                                 new_states.append(state)
@@ -640,11 +677,10 @@ async def teleop(
             await arm.disable_all_motors()
         print("All motors disabled.")
 
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Monitor Damiao motor angles"
-    )
+    parser = argparse.ArgumentParser(description="Monitor Damiao motor angles")
 
     parser.add_argument(
         "--interface",

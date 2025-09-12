@@ -1,4 +1,5 @@
 """Gravity compensation for robotic arms using MuJoCo physics simulation."""
+# ruff: noqa: BLE001, C901, PLR0912, SIM108, SIM102, TRY301, PLC0415, PLR2004, ANN201, ARG001, PERF401, S110
 
 import argparse
 import asyncio
@@ -132,7 +133,6 @@ class GravityCompensator:
         ]
 
 
-
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -144,8 +144,7 @@ def parse_arguments() -> argparse.Namespace:
         action="append",
         required=True,
         help=(
-            "CAN ports with position to use "
-            "(e.g., --port can0:left --port can1:right)"
+            "CAN ports with position to use (e.g., --port can0:left --port can1:right)"
         ),
     )
 
@@ -159,7 +158,6 @@ async def main(args: argparse.Namespace) -> None:
 
     if not all_can_buses:
         return
-
 
     # Parse port:position pairs
     port_configs = []  # List of (port_name, position)
@@ -254,7 +252,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     arms: list[ArmWithGravity] = []
 
     for _bus_idx, (can_bus, arm_position) in enumerate(selected_buses):
-
         # First use detect_motors to check if ALL motors are present
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
         detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
@@ -268,7 +265,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
 
         if missing_motors:
             continue
-
 
         # Create ALL motors for this arm
         motors = []
@@ -313,7 +309,6 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     # Report motors per arm
     for _arm_idx, _arm in enumerate(arms):
         pass
-
 
     # NOW set terminal to raw mode for keyboard detection during the main loop
     old_settings = None

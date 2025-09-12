@@ -1,4 +1,5 @@
 """CAN bus initialization utilities for different platforms."""
+# ruff: noqa: BLE001
 
 import platform
 import time
@@ -27,7 +28,6 @@ def create_can_bus(interface: str = "can0", max_attempts: int = 10) -> list[can.
 
         can_buses = []
         for dev in devs:
-
             # Retry connection for USB devices
             for attempt in range(max_attempts):
                 try:

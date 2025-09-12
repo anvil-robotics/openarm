@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 """Set zero position for all Damiao motors on all buses."""
+# ruff: noqa: T201, BLE001
 
 import argparse
 import asyncio
@@ -20,12 +20,12 @@ RESET = "\033[0m"
 
 
 async def main(args: argparse.Namespace) -> None:
-    """Main function to set zero position for all motors."""
+    """Set zero position for all motors."""
     # Create CAN buses
     can_buses = create_can_bus(args.interface)
     if not can_buses:
         print(f"{RED}Error: No CAN buses detected.{RESET}")
-        return
+        return None
 
     print(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}")
 
@@ -36,7 +36,7 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
-async def _main(args: argparse.Namespace, can_buses: list) -> None:
+async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG001
     """Process motors on all buses."""
     # Scan and set zero for each bus
     for bus_idx, can_bus in enumerate(can_buses):
@@ -127,7 +127,7 @@ def parse_arguments() -> argparse.Namespace:
 
 
 def run() -> None:
-    """Entry point for the set_zero script."""
+    """Run the set_zero script."""
     args = parse_arguments()
 
     try:
