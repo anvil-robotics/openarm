@@ -26,7 +26,7 @@ async def main(args: argparse.Namespace) -> None:
     if not can_buses:
         print(f"{RED}Error: No CAN buses detected.{RESET}")
         return
-    
+
     print(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}")
 
     try:
@@ -35,43 +35,48 @@ async def main(args: argparse.Namespace) -> None:
         for bus in can_buses:
             bus.shutdown()
 
+
 async def _main(args: argparse.Namespace, can_buses: list) -> None:
     """Process motors on all buses."""
     # Scan and set zero for each bus
     for bus_idx, can_bus in enumerate(can_buses):
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         print(f"Bus {bus_idx + 1} of {len(can_buses)}")
-        print(f"{'='*50}")
-        
+        print(f"{'=' * 50}")
+
         print(f"Scanning for motors on bus {bus_idx + 1}...")
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
-        
+
         # Detect motors using raw CAN bus
         detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
-        
+
         if not detected:
-            print(f"{YELLOW}No motors detected on bus {bus_idx + 1}, skipping...{RESET}")
+            print(
+                f"{YELLOW}No motors detected on bus {bus_idx + 1}, skipping...{RESET}"
+            )
             continue
-        
+
         print(f"\nDetected {len(detected)} motor(s) on bus {bus_idx + 1}")
-        
+
         # Create lookup for detected motors by slave ID
         detected_lookup = {info.slave_id: info for info in detected}
-        
+
         # Process each detected motor
         for config in MOTOR_CONFIGS:
             if config.slave_id not in detected_lookup:
                 continue
-                
+
             detected_info = detected_lookup[config.slave_id]
-            
+
             # Check if master ID matches expected
             if detected_info.master_id != config.master_id:
-                print(f"\n{YELLOW}⚠ {config.name} (ID 0x{config.slave_id:02X}): "
-                      f"Master ID mismatch (expected 0x{config.master_id:02X}, "
-                      f"got 0x{detected_info.master_id:02X}){RESET}")
+                print(
+                    f"\n{YELLOW}⚠ {config.name} (ID 0x{config.slave_id:02X}): "
+                    f"Master ID mismatch (expected 0x{config.master_id:02X}, "
+                    f"got 0x{detected_info.master_id:02X}){RESET}"
+                )
                 continue
-            
+
             # Create motor instance
             bus = Bus(can_bus)
             motor = Motor(
@@ -80,17 +85,17 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:
                 master_id=config.master_id,
                 motor_type=config.type,
             )
-            
+
             # Process motor - disable and set zero
             print(f"  {config.name} (ID 0x{config.slave_id:02X}): ", end="")
-            
+
             # Disable motor first (required for setting zero)
             try:
                 await motor.disable()
             except Exception as e:
                 print(f"{RED}✗ Failed to disable: {e}{RESET}")
                 continue
-            
+
             # Set zero position
             try:
                 await motor.set_zero_position()
@@ -99,10 +104,10 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:
             except Exception as e:
                 print(f"{RED}✗ Failed to set zero: {e}{RESET}")
                 continue
-    
-    print(f"\n{'='*50}")
+
+    print(f"\n{'=' * 50}")
     print(f"{GREEN}Zero position setting complete for all buses!{RESET}")
-    print(f"{'='*50}\n")
+    print(f"{'=' * 50}\n")
 
 
 def parse_arguments() -> argparse.Namespace:

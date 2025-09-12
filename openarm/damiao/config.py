@@ -18,12 +18,28 @@ class MotorConfig:
 
 # Motor configurations
 MOTOR_CONFIGS: list[MotorConfig] = [
-    MotorConfig("J1", slave_id=0x01, master_id=0x11, type=MotorType.DM8009, mirror=True),
-    MotorConfig("J2", slave_id=0x02, master_id=0x12, type=MotorType.DM8009, mirror=True),
-    MotorConfig("J3", slave_id=0x03, master_id=0x13, type=MotorType.DM4340, mirror=True),
-    MotorConfig("J4", slave_id=0x04, master_id=0x14, type=MotorType.DM4340, mirror=False),
-    MotorConfig("J5", slave_id=0x05, master_id=0x15, type=MotorType.DM4310, mirror=True),
-    MotorConfig("J6", slave_id=0x06, master_id=0x16, type=MotorType.DM4310, mirror=True),
-    MotorConfig("J7", slave_id=0x07, master_id=0x17, type=MotorType.DM4310, mirror=True),
-    MotorConfig("J8", slave_id=0x08, master_id=0x18, type=MotorType.DM4310, mirror=False),
+    MotorConfig(
+        "J1", slave_id=0x01, master_id=0x11, type=MotorType.DM8009, mirror=True
+    ),
+    MotorConfig(
+        "J2", slave_id=0x02, master_id=0x12, type=MotorType.DM8009, mirror=True
+    ),
+    MotorConfig(
+        "J3", slave_id=0x03, master_id=0x13, type=MotorType.DM4340, mirror=True
+    ),
+    MotorConfig(
+        "J4", slave_id=0x04, master_id=0x14, type=MotorType.DM4340, mirror=False
+    ),
+    MotorConfig(
+        "J5", slave_id=0x05, master_id=0x15, type=MotorType.DM4310, mirror=True
+    ),
+    MotorConfig(
+        "J6", slave_id=0x06, master_id=0x16, type=MotorType.DM4310, mirror=True
+    ),
+    MotorConfig(
+        "J7", slave_id=0x07, master_id=0x17, type=MotorType.DM4310, mirror=True
+    ),
+    MotorConfig(
+        "J8", slave_id=0x08, master_id=0x18, type=MotorType.DM4310, mirror=False
+    ),
 ]
