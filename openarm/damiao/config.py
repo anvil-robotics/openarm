@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from . import MotorType
+from .motor import MotorType
 
 
 @dataclass
