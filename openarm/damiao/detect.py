@@ -90,7 +90,7 @@ def detect_motors(
             continue
 
 
-def main(args: argparse.Namespace) -> None:
+def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
     """Detect motors on all available CAN buses.
 
     Args:
@@ -148,10 +148,13 @@ def main(args: argparse.Namespace) -> None:
             else:
                 print(f"  Found {len(detected)} motor(s):")  # noqa: T201
 
-            for info in detected:
-                # Check if this motor is in our config
-                if info.slave_id in config_lookup:
-                    config = config_lookup[info.slave_id]
+            # Create lookup for detected motors by slave ID
+            detected_lookup = {info.slave_id: info for info in detected}
+
+            # Check each expected motor
+            for config in MOTOR_CONFIGS:
+                if config.slave_id in detected_lookup:
+                    info = detected_lookup[config.slave_id]
                     # Check if master ID matches
                     if info.master_id == config.master_id:
                         print(  # noqa: T201
@@ -168,6 +171,15 @@ def main(args: argparse.Namespace) -> None:
                             f"0x{config.master_id:02X}){reset}"
                         )
                 else:
+                    print(  # noqa: T201
+                        f"  {red}✗{reset} {config.name}: "
+                        f"Slave ID 0x{config.slave_id:02X} "
+                        f"{red}[NOT DETECTED]{reset}"
+                    )
+
+            # Show any unknown motors (not in our config)
+            for info in detected:
+                if info.slave_id not in config_lookup:
                     print(  # noqa: T201
                         f"  {yellow}?{reset} Unknown motor: "
                         f"Slave ID 0x{info.slave_id:02X}, "
