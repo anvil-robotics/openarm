@@ -32,7 +32,7 @@ import can
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor, PosVelControlParams
+from . import ControlMode, MitControlParams, Motor, MotorStatus, PosVelControlParams
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 from .gravity import GravityCompensator
@@ -40,10 +40,36 @@ from .gravity import GravityCompensator
 # ANSI color codes for terminal output
 RED = "\033[91m"
 GREEN = "\033[92m"
+YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 # Constants
 FOLLOW_SPEC_PARTS = 4  # MASTER:POSITION:SLAVE:POSITION
+
+
+def format_status(status: int) -> str:
+    """Format motor status for display with color coding."""
+    try:
+        status_enum = MotorStatus(status)
+        if status_enum == MotorStatus.ENABLED:
+            return f"{GREEN}EN{RESET}"  # Enabled - green
+        elif status_enum == MotorStatus.DISABLED:
+            return "DS"  # Disabled - normal
+        else:
+            # Error states - red with abbreviation
+            status_map = {
+                MotorStatus.OVERVOLTAGE: f"{RED}OV{RESET}",
+                MotorStatus.UNDERVOLTAGE: f"{RED}UV{RESET}",
+                MotorStatus.OVERCURRENT: f"{RED}OC{RESET}",
+                MotorStatus.MOS_OVERTEMPERATURE: f"{RED}MT{RESET}",
+                MotorStatus.MOTOR_COIL_OVERTEMPERATURE: f"{RED}CT{RESET}",
+                MotorStatus.COMMUNICATION_LOSS: f"{RED}CL{RESET}",
+                MotorStatus.OVERLOAD: f"{RED}OL{RESET}",
+            }
+            return status_map.get(status_enum, f"{RED}E{status:X}{RESET}")
+    except ValueError:
+        # Unknown status code
+        return f"{YELLOW}?{status:X}{RESET}"
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -268,8 +294,8 @@ async def monitor_motors(  # noqa: C901, PLR0912
     for can_bus in can_buses:
         # Get channel name from the bus
         channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else "unknown"
-        # Pad header for wider display (pos, torque, temp_mos, temp_rotor)
-        header += f"  {channel_name:^50}  "
+        # Pad header for wider display (status, pos, torque, temp_mos, temp_rotor)
+        header += f"  {channel_name:^55}  "
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -277,7 +303,7 @@ async def monitor_motors(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in range(len(can_buses)):
-            line += "                 Initializing...                    "
+            line += "                   Initializing...                      "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -297,13 +323,14 @@ async def monitor_motors(  # noqa: C901, PLR0912
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
                     if state:
-                        # Show position, torque, and temperatures
+                        # Show status, position, torque, and temperatures
                         angle_deg = state.position * 180 / pi
-                        line += f"  P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
+                        status_str = format_status(state.status)
+                        line += f"  S:{status_str} P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
-                        line += "                           N/A                        "
+                        line += "                             N/A                          "
                     else:
-                        line += "                        No state                      "
+                        line += "                          No state                        "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
@@ -493,8 +520,8 @@ async def teleop(  # noqa: C901, PLR0912
     for arm in arms:
         # Slave: show S* for mirror mode, S for normal; Master: M
         role = ("S*" if arm.mirror_mode else "S") if arm.is_slave else "M"
-        # Pad header for wider display
-        header += f"  {arm.channel}({role}):".ljust(52)
+        # Pad header for wider display (with status)
+        header += f"  {arm.channel}({role}):".ljust(57)
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -502,7 +529,7 @@ async def teleop(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in arms:
-            line += "                 Initializing...                    "
+            line += "                   Initializing...                      "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -553,18 +580,19 @@ async def teleop(  # noqa: C901, PLR0912
                     if motor_idx < len(arm.states):
                         state = arm.states[motor_idx]
                         if state:
-                            # Show position, torque, and temperatures
+                            # Show status, position, torque, and temperatures
                             angle_deg = state.position * 180 / pi
-                            line += f"  P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
+                            status_str = format_status(state.status)
+                            line += f"  S:{status_str} P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                         elif (
                             motor_idx >= len(arm.motors)
                             or arm.motors[motor_idx] is None
                         ):
-                            line += "                           N/A                        "
+                            line += "                             N/A                          "
                         else:
-                            line += "                        No state                      "
+                            line += "                          No state                        "
                     else:
-                        line += "                           N/A                        "
+                        line += "                             N/A                          "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh

@@ -22,6 +22,20 @@ class ControlMode(IntEnum):
     TORQUE_POS = 4
 
 
+class MotorStatus(IntEnum):
+    """Enumeration of Damiao motor status codes."""
+
+    DISABLED = 0x0  # Disabled
+    ENABLED = 0x1  # Enabled
+    OVERVOLTAGE = 0x8  # Overvoltage
+    UNDERVOLTAGE = 0x9  # Undervoltage
+    OVERCURRENT = 0xA  # Overcurrent
+    MOS_OVERTEMPERATURE = 0xB  # MOS overtemperature
+    MOTOR_COIL_OVERTEMPERATURE = 0xC  # Motor coil overtemperature
+    COMMUNICATION_LOSS = 0xD  # Communication loss
+    OVERLOAD = 0xE  # Overload
+
+
 class RegisterAddress(IntEnum):
     """Enumeration of Damiao motor register addresses.
 
@@ -160,7 +174,8 @@ class MotorState:
     Reference: DM_CAN.py MotorState structure and recv_data function
     """
 
-    slave_id: int  # Motor slave ID that responded
+    status: int  # Motor status (4 bits)
+    slave_id: int  # Motor slave ID that responded (4 bits)
     position: float  # Motor position in radians
     velocity: float  # Motor velocity in radians/second
     torque: float  # Motor torque in Nm
@@ -338,9 +353,13 @@ async def decode_motor_state(
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
-    # Format: '>BHHBB' = big-endian: slave_id(B) + packed_data(2*H) + temps(2*B)
+    # Format: '>BHHBB' = big-endian: byte0(B) + packed_data(2*H) + temps(2*B)
     # Reference: Motor state format in DM_CAN.py __process_packet CMD==0x11 handling
-    slave_id, word1, word2, t_mos, t_rotor = struct.unpack(">BHHBB", message.data[:7])
+    byte0, word1, word2, t_mos, t_rotor = struct.unpack(">BHHBB", message.data[:7])
+
+    # Extract status (high 4 bits) and slave_id (low 4 bits) from byte0
+    status = (byte0 >> 4) & 0xF  # High 4 bits for status
+    slave_id = byte0 & 0xF  # Low 4 bits for slave_id
 
     # Extract packed motor state values using bit operations
     # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
@@ -363,6 +382,7 @@ async def decode_motor_state(
     torque = _uint_to_float(tau_uint, -tau_max, tau_max, 12)
 
     return MotorState(
+        status=status,
         slave_id=slave_id,
         position=position,
         velocity=velocity,
