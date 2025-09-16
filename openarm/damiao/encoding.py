@@ -353,19 +353,26 @@ async def decode_motor_state(
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
-    # Format: '>BHHBB' = big-endian: byte0(B) + packed_data(2*H) + temps(2*B)
-    # Reference: Motor state format in DM_CAN.py __process_packet CMD==0x11 handling
-    byte0, word1, word2, t_mos, t_rotor = struct.unpack(">BHHBB", message.data[:7])
-
-    # Extract status (high 4 bits) and slave_id (low 4 bits) from byte0
-    status = (byte0 >> 4) & 0xF  # High 4 bits for status
+    # Format: ID|ERR<<4 | POS[15:0] | VEL[11:4] | VEL[3:0]|T[11:8] | T[7:0] | T_MOS | T_Rotor
+    # Format: '>BHBBBB' = big-endian: byte0(B) + position(H) + 4 bytes + temps(2*B)
+    # Total: 8 bytes
+    byte0, q_uint, vel_h, vel_t, torque_l, t_mos, t_rotor = struct.unpack(
+        ">BHBBBBB", message.data[:8]
+    )
+    
+    # Byte 0: ID | ERR<<4
     slave_id = byte0 & 0xF  # Low 4 bits for slave_id
-
-    # Extract packed motor state values using bit operations
-    # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
-    q_uint = word1  # position: full 16 bits
-    dq_uint = (word2 >> 4) & 0xFFF  # velocity: high 12 bits
-    tau_uint = ((word2 & 0xF) << 8) | (message.data[5] & 0xFF)  # torque: low 4 bits
+    status = (byte0 >> 4) & 0xF  # High 4 bits for status/error
+    
+    # Bytes 3-4: Velocity (12 bits total)
+    # Byte 3: VEL[11:4] (high 8 bits)
+    # Byte 4 high nibble: VEL[3:0] (low 4 bits)
+    dq_uint = (vel_h << 4) | ((vel_t >> 4) & 0xF)
+    
+    # Bytes 4-5: Torque (12 bits total)
+    # Byte 4 low nibble: T[11:8] (high 4 bits)
+    # Byte 5: T[7:0] (low 8 bits)
+    tau_uint = ((vel_t & 0xF) << 8) | torque_l
 
     # Get motor limits for scaling back to engineering units
     # Reference: DM_CAN.py uint_to_float function calls in __process_packet
