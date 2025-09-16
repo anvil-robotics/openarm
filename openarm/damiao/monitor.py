@@ -173,11 +173,13 @@ async def main(args: argparse.Namespace) -> None:
 
 
 async def read_and_display_registers(
+    can_buses: list[can.BusABC],
     all_bus_motors: list[list[Motor | None]],
 ) -> None:
-    """Read and display motor register values in a table format.
+    """Read and display motor register values in a table format per bus.
 
     Args:
+        can_buses: List of CAN bus interfaces.
         all_bus_motors: List of motor lists for each bus.
 
     """
@@ -217,51 +219,58 @@ async def read_and_display_registers(
         ("Phase Inductance", "H", "get_motor_phase_inductance", "{:.6f}"),
     ]
 
-    # Collect all active motors and their names
-    active_motors = []
-    motor_names = []
-    for bus_motors in all_bus_motors:
+    # Process each bus separately
+    for bus_idx, (can_bus, bus_motors) in enumerate(zip(can_buses, all_bus_motors, strict=False)):
+        # Get channel name
+        channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else f"bus{bus_idx}"
+        
+        # Collect active motors and their names for this bus
+        active_motors = []
+        motor_names = []
         for motor_idx, motor in enumerate(bus_motors):
             if motor is not None:
                 active_motors.append(motor)
                 motor_names.append(MOTOR_CONFIGS[motor_idx].name)
+        
+        if not active_motors:
+            continue  # Skip this bus if no active motors
+        
+        # Print bus header
+        print(f"\nBus: {channel_name}")  # noqa: T201
+        print("-" * 60)  # noqa: T201
+        
+        # Print table header
+        header = f"{'Parameter':<25}"
+        for name in motor_names:
+            header += f"{name:>12}"
+        print(header)  # noqa: T201
+        print("-" * len(header))  # noqa: T201
 
-    if not active_motors:
-        print("No active motors to read registers from")  # noqa: T201
-        return
+        # Read and display each register
+        for display_name, unit, method_name, fmt in register_info:
+            line = f"{display_name:<20}"
+            if unit:
+                line = f"{display_name:<20} ({unit:<3})"
+            else:
+                line = f"{display_name:<25}"
 
-    # Print table header
-    header = f"{'Parameter':<25}"
-    for name in motor_names:
-        header += f"{name:>12}"
-    print(header)  # noqa: T201
-    print("-" * len(header))  # noqa: T201
+            # Read register from each motor on this bus
+            for motor in active_motors:
+                try:
+                    # Get the method and call it
+                    method = getattr(motor, method_name)
+                    value = await method()
+                    # Format the value
+                    formatted = fmt.format(value)
+                    line += f"{formatted:>12}"
+                except Exception as e:  # noqa: BLE001
+                    # If reading fails, show N/A
+                    logger.debug("Failed to read %s: %s", method_name, e)
+                    line += f"{'N/A':>12}"
 
-    # Read and display each register
-    for display_name, unit, method_name, fmt in register_info:
-        line = f"{display_name:<20}"
-        if unit:
-            line = f"{display_name:<20} ({unit:<3})"
-        else:
-            line = f"{display_name:<25}"
+            print(line)  # noqa: T201
 
-        # Read register from each motor
-        for motor in active_motors:
-            try:
-                # Get the method and call it
-                method = getattr(motor, method_name)
-                value = await method()
-                # Format the value
-                formatted = fmt.format(value)
-                line += f"{formatted:>12}"
-            except Exception as e:  # noqa: BLE001
-                # If reading fails, show N/A
-                logger.debug("Failed to read %s: %s", method_name, e)
-                line += f"{'N/A':>12}"
-
-        print(line)  # noqa: T201
-
-    print("=" * 80 + "\n")  # noqa: T201
+    print("\n" + "=" * 80 + "\n")  # noqa: T201
 
 
 async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901, PLR0912
@@ -364,7 +373,7 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
     # Read and display registers if requested
     if args.registers:
         print("\nReading motor registers...")  # noqa: T201
-        await read_and_display_registers(all_bus_motors)
+        await read_and_display_registers(can_buses, all_bus_motors)
 
     # Call teleop or monitor based on flag
     if args.teleop:
