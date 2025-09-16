@@ -187,36 +187,40 @@ async def read_and_display_registers(
     print("Motor Register Values")  # noqa: T201
     print("=" * 80)  # noqa: T201
 
-    # Define registers to read with their display names and units
+    # ANSI color codes for register display
+    GRAY = "\033[90m"  # Gray for read-only
+    
+    # Define registers to read with their display names, units, and writability
+    # Format: (display_name, unit, getter_method, format_string, is_writable)
     register_info = [
-        # Protection parameters
-        ("Over Voltage", "V", "get_over_voltage", "{:.1f}"),
-        ("Under Voltage", "V", "get_under_voltage", "{:.1f}"),
-        ("Over Temperature", "°C", "get_over_temperature", "{:.1f}"),
-        ("Over Current", "A", "get_over_current", "{:.1f}"),
+        # Protection parameters - all writable (have set_* methods)
+        ("Over Voltage", "V", "get_over_voltage", "{:.1f}", True),  # set_over_voltage
+        ("Under Voltage", "V", "get_under_voltage", "{:.1f}", True),  # set_under_voltage
+        ("Over Temperature", "°C", "get_over_temperature", "{:.1f}", True),  # set_over_temperature
+        ("Over Current", "A", "get_over_current", "{:.1f}", True),  # set_over_current
         # Motor parameters
-        ("Torque Coefficient", "", "get_torque_coefficient", "{:.4f}"),
-        ("Gear Ratio", "", "get_gear_ratio", "{:.1f}"),
-        ("Gear Efficiency", "%", "get_gear_efficiency", "{:.1f}"),
-        # Limits
-        ("Position Limit", "rad", "get_position_limit", "{:.2f}"),
-        ("Velocity Limit", "rad/s", "get_velocity_limit", "{:.2f}"),
-        ("Torque Limit", "Nm", "get_torque_limit", "{:.2f}"),
-        # Control gains
-        ("Velocity KP", "", "get_velocity_kp", "{:.3f}"),
-        ("Velocity KI", "", "get_velocity_ki", "{:.3f}"),
-        ("Position KP", "", "get_position_kp", "{:.3f}"),
-        ("Position KI", "", "get_position_ki", "{:.3f}"),
-        # System info
-        ("Hardware Version", "", "get_hardware_version", "{}"),
-        ("Software Version", "", "get_software_version", "{}"),
-        ("Serial Number", "", "get_serial_number", "{}"),
+        ("Torque Coefficient", "", "get_torque_coefficient", "{:.4f}", True),  # set_torque_coefficient
+        ("Gear Ratio", "", "get_gear_ratio", "{:.1f}", False),  # NO set_gear_ratio - READ-ONLY
+        ("Gear Efficiency", "%", "get_gear_efficiency", "{:.1f}", True),  # set_gear_efficiency
+        # Limits - all writable
+        ("Position Limit", "rad", "get_position_limit", "{:.2f}", True),  # set_position_limit
+        ("Velocity Limit", "rad/s", "get_velocity_limit", "{:.2f}", True),  # set_velocity_limit
+        ("Torque Limit", "Nm", "get_torque_limit", "{:.2f}", True),  # set_torque_limit
+        # Control gains - all writable
+        ("Velocity KP", "", "get_velocity_kp", "{:.3f}", True),  # set_velocity_kp
+        ("Velocity KI", "", "get_velocity_ki", "{:.3f}", True),  # set_velocity_ki
+        ("Position KP", "", "get_position_kp", "{:.3f}", True),  # set_position_kp
+        ("Position KI", "", "get_position_ki", "{:.3f}", True),  # set_position_ki
+        # System info - all read-only
+        ("Hardware Version", "", "get_hardware_version", "{}", False),  # NO setter - READ-ONLY
+        ("Software Version", "", "get_software_version", "{}", False),  # NO setter - READ-ONLY
+        ("Serial Number", "", "get_serial_number", "{}", False),  # NO setter - READ-ONLY
         # Physical properties
-        ("Motor Damping", "", "get_motor_damping", "{:.6f}"),
-        ("Motor Inertia", "", "get_motor_inertia", "{:.6f}"),
-        ("Pole Pairs", "", "get_motor_pole_pairs", "{}"),
-        ("Phase Resistance", "Ω", "get_motor_phase_resistance", "{:.4f}"),
-        ("Phase Inductance", "H", "get_motor_phase_inductance", "{:.6f}"),
+        ("Motor Damping", "", "get_motor_damping", "{:.6f}", False),  # NO set_motor_damping - READ-ONLY
+        ("Motor Inertia", "", "get_motor_inertia", "{:.6f}", False),  # NO set_motor_inertia - READ-ONLY
+        ("Pole Pairs", "", "get_motor_pole_pairs", "{}", False),  # NO setter - READ-ONLY
+        ("Phase Resistance", "Ω", "get_motor_phase_resistance", "{:.4f}", False),  # NO setter - READ-ONLY
+        ("Phase Inductance", "H", "get_motor_phase_inductance", "{:.6f}", False),  # NO setter - READ-ONLY
     ]
 
     # Process each bus separately
@@ -247,12 +251,19 @@ async def read_and_display_registers(
         print("-" * len(header))  # noqa: T201
 
         # Read and display each register
-        for display_name, unit, method_name, fmt in register_info:
+        for display_name, unit, method_name, fmt, is_writable in register_info:
             if unit:
                 param_label = f"{display_name} ({unit})"
             else:
                 param_label = display_name
-            line = f"{param_label:<30}"
+            
+            # Apply color based on writability
+            if is_writable:
+                # Writable - green
+                line = f"{GREEN}{param_label:<30}"
+            else:
+                # Read-only - gray
+                line = f"{GRAY}{param_label:<30}"
 
             # Read register from each motor on this bus
             for motor in active_motors:
@@ -268,6 +279,8 @@ async def read_and_display_registers(
                     logger.debug("Failed to read %s: %s", method_name, e)
                     line += f"{'N/A':>12}"
 
+            # Reset color at end of line
+            line += RESET
             print(line)  # noqa: T201
 
     print("\n" + "=" * 80 + "\n")  # noqa: T201
