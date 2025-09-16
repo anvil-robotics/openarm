@@ -19,9 +19,6 @@ import can
 from openarm.bus import Bus
 
 from .config import MOTOR_CONFIGS
-
-# Only use first 7 motors (J1-J7), ignore J8
-MOTOR_CONFIGS = MOTOR_CONFIGS[:7]
 from .encoding import (
     ControlMode,
     MotorLimits,
@@ -33,6 +30,7 @@ from .encoding import (
     encode_control_pos_vel,
     encode_disable_motor,
     encode_enable_motor,
+    encode_refresh_status,
     encode_write_register_int,
 )
 from .motor import MOTOR_LIMITS
@@ -319,7 +317,14 @@ async def main(args: argparse.Namespace) -> None:
                     # Read-only mode - no destination
                     dst_line = f"\r  (read-only)    " + " " * (len(src_states) * 11)
                 print(dst_line + "\033[K")  # noqa: T201
-                
+            
+            # Send refresh to J8 (motor 8) on all source buses
+            source_buses = {src for src, _ in bus_pairs}
+            for src_name in source_buses:
+                src_bus = bus_objects[src_name]
+                # J8 is motor with slave_id 0x08
+                encode_refresh_status(src_bus, 0x08)
+            
             # Small delay
             # await asyncio.sleep(0.01)
             
