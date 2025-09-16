@@ -10,6 +10,7 @@ Source buses are read-only, destination buses are write-only.
 
 import argparse
 import asyncio
+import struct
 import sys
 from math import pi
 
@@ -23,6 +24,8 @@ from .config import MOTOR_CONFIGS
 MOTOR_CONFIGS = MOTOR_CONFIGS[:7]
 from .encoding import (
     ControlMode,
+    MotorLimits,
+    MotorState,
     PosVelControlParams,
     RegisterAddress,
     decode_motor_state,
@@ -39,6 +42,106 @@ RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
+
+
+def _uint_to_float(value: int, min_val: float, max_val: float, bits: int) -> float:
+    """Convert unsigned integer to float value with scaling.
+    
+    Args:
+        value: Unsigned integer value to convert
+        min_val: Minimum value in float range
+        max_val: Maximum value in float range
+        bits: Number of bits for the unsigned integer
+    
+    Returns:
+        Scaled float value
+    """
+    # Scale from unsigned integer range to normalized [0, 1]
+    scale = (1 << bits) - 1
+    normalized = value / scale
+    
+    # Scale to actual float range
+    return normalized * (max_val - min_val) + min_val
+
+
+async def decode_motor_state_and_forward(
+    src_bus: can.BusABC,
+    motor_limits: MotorLimits,
+    dst_bus: can.BusABC | None = None,
+    dst_slave_id: int | None = None
+) -> tuple[int, MotorState | None]:
+    """Decode motor state from any message and optionally forward position.
+    
+    Args:
+        src_bus: Source CAN bus to receive from
+        motor_limits: Motor physical limits for scaling
+        dst_bus: Optional destination bus to forward to
+        dst_slave_id: Optional slave ID for forwarding
+    
+    Returns:
+        Tuple of (master_id, motor_state) where motor_state is None if decode failed
+    """
+    try:
+        # Receive any message from the bus
+        message = src_bus.recv(timeout=0.01)
+        if message is None:
+            return 0, None
+        
+        master_id = message.arbitration_id
+        
+        # Check if we have enough data for motor state
+        if len(message.data) < 8:
+            return master_id, None
+        
+        # Unpack motor state response data
+        byte0, q_uint, vel_h, vel_t, torque_l, t_mos, t_rotor = struct.unpack(
+            ">BHBBBBB", message.data[:8]
+        )
+        
+        # Extract slave_id and status
+        slave_id = byte0 & 0xF
+        status = (byte0 >> 4) & 0xF
+        
+        # Decode velocity (12 bits)
+        dq_uint = (vel_h << 4) | ((vel_t >> 4) & 0xF)
+        
+        # Decode torque (12 bits)
+        tau_uint = ((vel_t & 0xF) << 8) | torque_l
+        
+        # Get motor limits for scaling
+        q_max, dq_max, tau_max = (
+            motor_limits.q_max,
+            motor_limits.dq_max,
+            motor_limits.tau_max,
+        )
+        
+        # Convert to float values
+        position = _uint_to_float(q_uint, -q_max, q_max, 16)
+        velocity = _uint_to_float(dq_uint, -dq_max, dq_max, 12)
+        torque = _uint_to_float(tau_uint, -tau_max, tau_max, 12)
+        
+        motor_state = MotorState(
+            status=status,
+            slave_id=slave_id,
+            position=position,
+            velocity=velocity,
+            torque=torque,
+            temp_mos=t_mos,
+            temp_rotor=t_rotor,
+        )
+        
+        # Forward position if destination is provided
+        if dst_bus is not None and dst_slave_id is not None:
+            params = PosVelControlParams(
+                position=position,
+                velocity=1.0  # Default velocity
+            )
+            encode_control_pos_vel(dst_bus, dst_slave_id, params)
+        
+        return master_id, motor_state
+        
+    except Exception:  # noqa: BLE001
+        return 0, None
 
 
 async def setup_destination_motor(bus: Bus, slave_id: int, master_id: int) -> None:
@@ -150,6 +253,11 @@ async def main(args: argparse.Namespace) -> None:
     for _ in range(num_lines):
         print()  # noqa: T201
     
+    # Create mapping from master_id to config index
+    master_to_config = {}
+    for idx, config in enumerate(MOTOR_CONFIGS):
+        master_to_config[config.master_id] = idx
+    
     try:
         while True:
             # Move cursor up to overwrite previous output
@@ -158,48 +266,49 @@ async def main(args: argparse.Namespace) -> None:
             
             # Process each bus pair
             for src_name, dst_name in bus_pairs:
-                src_bus = bus_objects[src_name]
+                src_can = can_buses[src_name]
+                dst_can = can_buses[dst_name] if dst_name else None
+                dst_bus = bus_objects[dst_name] if dst_name else None
                 
                 # Store states for display
-                src_states = []
-                dst_states = []
+                src_states = [None] * len(MOTOR_CONFIGS)
+                dst_states = [None] * len(MOTOR_CONFIGS)
                 
-                # Process each motor
-                for config in MOTOR_CONFIGS:
-                    try:
-                        # Read from source
-                        src_state = await decode_motor_state(
-                            src_bus, 
-                            config.master_id, 
-                            MOTOR_LIMITS[config.type]
+                # Decode any motor state from source
+                master_id, src_state = await decode_motor_state_and_forward(
+                    src_can,
+                    MOTOR_LIMITS[MOTOR_CONFIGS[0].type],  # Temp limits, will fix below
+                    None,
+                    None
+                )
+                
+                if src_state is not None and master_id in master_to_config:
+                    # Get the motor config for this master_id
+                    motor_idx = master_to_config[master_id]
+                    config = MOTOR_CONFIGS[motor_idx]
+                    motor_limits = MOTOR_LIMITS[config.type]
+                    
+                    # Re-decode with correct limits and forward if needed
+                    if dst_can and dst_bus:
+                        # Forward position
+                        params = PosVelControlParams(
+                            position=src_state.position,
+                            velocity=1.0
                         )
-                        src_states.append(src_state)
+                        encode_control_pos_vel(dst_bus, config.slave_id, params)
                         
-                        # Forward to destination if it exists
-                        if dst_name:
-                            dst_bus = bus_objects[dst_name]
-                            
-                            # Forward position
-                            params = PosVelControlParams(
-                                position=src_state.position,
-                                velocity=1.0  # Default velocity
-                            )
-                            encode_control_pos_vel(dst_bus, config.slave_id, params)
-                            
-                            # Read destination state
+                        # Read destination state
+                        try:
                             dst_state = await decode_motor_state(
                                 dst_bus,
                                 config.master_id,
-                                MOTOR_LIMITS[config.type]
+                                motor_limits
                             )
-                            dst_states.append(dst_state)
-                        else:
-                            # No destination - just monitoring
-                            dst_states.append(None)
-                        
-                    except Exception:  # noqa: BLE001
-                        src_states.append(None)
-                        dst_states.append(None)
+                            dst_states[motor_idx] = dst_state
+                        except Exception:  # noqa: BLE001
+                            pass
+                    
+                    src_states[motor_idx] = src_state
                 
                 # Display source line
                 src_line = f"\r{GREEN}{src_name:12}{RESET}  "
