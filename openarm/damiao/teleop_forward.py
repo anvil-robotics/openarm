@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import struct
 import sys
+import time
 from math import pi
 
 import can
@@ -244,6 +245,9 @@ async def main(args: argparse.Namespace) -> None:
     for idx, config in enumerate(MOTOR_CONFIGS):
         master_to_config[config.master_id] = idx
     
+    # Track last J8 refresh time for each source bus
+    last_j8_refresh = {src: 0 for src, _ in bus_pairs}
+    
     try:
         while True:
             # Move cursor up to overwrite previous output
@@ -294,10 +298,12 @@ async def main(args: argparse.Namespace) -> None:
                     
                     src_states[motor_idx] = src_state
                     
-                    # If we just received J7, send refresh to J8
-                    # if config.slave_id == 0x07:  # J7
-                    #     src_bus = bus_objects[src_name]
-                    #     encode_refresh_status(src_bus, 0x08)  # J8
+                    # Send refresh to J8 (max once per 100ms)
+                    current_time = time.time()
+                    if current_time - last_j8_refresh[src_name] > 0.1:  # 100ms
+                        src_bus = bus_objects[src_name]
+                        encode_refresh_status(src_bus, 0x08)  # J8
+                        last_j8_refresh[src_name] = current_time
                 
                 # Display source line
                 src_line = f"\r{GREEN}{src_name:12}{RESET}  "
