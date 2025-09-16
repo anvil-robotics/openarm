@@ -18,6 +18,9 @@ import can
 from openarm.bus import Bus
 
 from .config import MOTOR_CONFIGS
+
+# Only use first 7 motors (J1-J7), ignore J8
+MOTOR_CONFIGS = MOTOR_CONFIGS[:7]
 from .encoding import (
     ControlMode,
     PosVelControlParams,
