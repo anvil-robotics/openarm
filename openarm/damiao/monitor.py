@@ -133,6 +133,18 @@ class Arm:
                     logger.exception("Motor %d: Error", idx + 1)
                     print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")  # noqa: T201
 
+    async def set_motor_velocity_limits(self) -> None:
+        """Set velocity limits for specific motors (J3 and J4 to 30 rad/s)."""
+        for idx, motor in enumerate(self.motors):
+            if motor is not None and idx in [2, 3]:  # J3 (index 2) and J4 (index 3)
+                try:
+                    await motor.set_velocity_limit(30.0)
+                    logger.info("Motor J%d: Velocity limit set to 30 rad/s", idx + 1)
+                    print(f"    Motor J{idx + 1}: Velocity limit set to 30 rad/s")  # noqa: T201
+                except Exception as e:
+                    logger.exception("Motor J%d: Failed to set velocity limit", idx + 1)
+                    print(f"{RED}    Motor J{idx + 1}: Failed to set velocity limit - {e}{RESET}")  # noqa: T201
+
     async def refresh_states(self) -> None:
         """Refresh states for all motors."""
         new_states = []
@@ -633,6 +645,9 @@ async def teleop(  # noqa: C901, PLR0912
         else:  # master
             print(f"  {arm.channel}: Enabling motors with MIT control (master)")  # noqa: T201
             await arm.enable_all_motors(ControlMode.MIT)
+        
+        # Set velocity limits for J3 and J4
+        await arm.set_motor_velocity_limits()
 
     # Start teleoperation with monitoring display
     print("\nTeleoperation mode starting...\n")  # noqa: T201
