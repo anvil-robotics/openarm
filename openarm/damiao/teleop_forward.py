@@ -295,9 +295,9 @@ async def main(args: argparse.Namespace) -> None:
                     src_states[motor_idx] = src_state
                     
                     # If we just received J7, send refresh to J8
-                    if config.slave_id == 0x07:  # J7
-                        src_bus = bus_objects[src_name]
-                        encode_refresh_status(src_bus, 0x08)  # J8
+                    # if config.slave_id == 0x07:  # J7
+                    #     src_bus = bus_objects[src_name]
+                    #     encode_refresh_status(src_bus, 0x08)  # J8
                 
                 # Display source line
                 src_line = f"\r{GREEN}{src_name:12}{RESET}  "
