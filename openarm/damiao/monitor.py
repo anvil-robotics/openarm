@@ -264,12 +264,12 @@ async def monitor_motors(  # noqa: C901, PLR0912
     print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")  # noqa: T201
 
     # Print header with bus channel names
-    header = "  Motor"
+    header = "  Motor      "
     for can_bus in can_buses:
         # Get channel name from the bus
         channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else "unknown"
-        # Pad to consistent width
-        header += f"      {channel_name:^10}   "
+        # Pad header for wider display (pos, torque, temp_mos, temp_rotor)
+        header += f"  {channel_name:^50}  "
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -277,7 +277,7 @@ async def monitor_motors(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in range(len(can_buses)):
-            line += "  Initializing...  "
+            line += "                 Initializing...                    "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -297,13 +297,13 @@ async def monitor_motors(  # noqa: C901, PLR0912
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
                     if state:
-                        # Show absolute angle
+                        # Show position, torque, and temperatures
                         angle_deg = state.position * 180 / pi
-                        line += f"  {angle_deg:+8.2f}°     "
+                        line += f"  P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
-                        line += "       N/A        "
+                        line += "                           N/A                        "
                     else:
-                        line += "    No state      "
+                        line += "                        No state                      "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
@@ -489,11 +489,12 @@ async def teleop(  # noqa: C901, PLR0912
     print("\nTeleoperation mode starting...\n")  # noqa: T201
 
     # Print header with bus labels showing channel names and roles
-    header = "  Motor"
+    header = "  Motor      "
     for arm in arms:
         # Slave: show S* for mirror mode, S for normal; Master: M
         role = ("S*" if arm.mirror_mode else "S") if arm.is_slave else "M"
-        header += f"   {arm.channel}({role})   "
+        # Pad header for wider display
+        header += f"  {arm.channel}({role}):".ljust(52)
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -501,7 +502,7 @@ async def teleop(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in arms:
-            line += "  Initializing...  "
+            line += "                 Initializing...                    "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -552,18 +553,18 @@ async def teleop(  # noqa: C901, PLR0912
                     if motor_idx < len(arm.states):
                         state = arm.states[motor_idx]
                         if state:
-                            # Show absolute angle
+                            # Show position, torque, and temperatures
                             angle_deg = state.position * 180 / pi
-                            line += f"  {angle_deg:+8.2f}°     "
+                            line += f"  P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                         elif (
                             motor_idx >= len(arm.motors)
                             or arm.motors[motor_idx] is None
                         ):
-                            line += "       N/A        "
+                            line += "                           N/A                        "
                         else:
-                            line += "    No state      "
+                            line += "                        No state                      "
                     else:
-                        line += "       N/A        "
+                        line += "                           N/A                        "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
