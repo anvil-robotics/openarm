@@ -32,7 +32,8 @@ import can
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor, MotorStatus, PosVelControlParams
+from .encoding import ControlMode, MitControlParams, MotorStatus, PosVelControlParams
+from .motor import Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 from .gravity import GravityCompensator
