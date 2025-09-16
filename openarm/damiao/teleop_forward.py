@@ -282,15 +282,15 @@ async def main(args: argparse.Namespace) -> None:
                         encode_control_pos_vel(dst_bus, config.slave_id, params)
                         
                         # Read destination state
-                        try:
-                            dst_state = await decode_motor_state(
-                                dst_bus,
-                                config.master_id,
-                                motor_limits
-                            )
-                            dst_states[motor_idx] = dst_state
-                        except Exception:  # noqa: BLE001
-                            pass
+                        # try:
+                        #     dst_state = await decode_motor_state(
+                        #         dst_bus,
+                        #         config.master_id,
+                        #         motor_limits
+                        #     )
+                        #     dst_states[motor_idx] = dst_state
+                        # except Exception:  # noqa: BLE001
+                        #     pass
                     
                     src_states[motor_idx] = src_state
                     
