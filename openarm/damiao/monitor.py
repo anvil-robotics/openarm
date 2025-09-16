@@ -240,7 +240,7 @@ async def read_and_display_registers(
         print("-" * 60)  # noqa: T201
         
         # Print table header
-        header = f"{'Parameter':<25}"
+        header = f"{'Parameter':<30}"
         for name in motor_names:
             header += f"{name:>12}"
         print(header)  # noqa: T201
@@ -248,11 +248,11 @@ async def read_and_display_registers(
 
         # Read and display each register
         for display_name, unit, method_name, fmt in register_info:
-            line = f"{display_name:<20}"
             if unit:
-                line = f"{display_name:<20} ({unit:<3})"
+                param_label = f"{display_name} ({unit})"
             else:
-                line = f"{display_name:<25}"
+                param_label = display_name
+            line = f"{param_label:<30}"
 
             # Read register from each motor on this bus
             for motor in active_motors:
