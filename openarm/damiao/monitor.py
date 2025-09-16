@@ -263,10 +263,13 @@ async def monitor_motors(  # noqa: C901, PLR0912
     # Start continuous monitoring with column display
     print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")  # noqa: T201
 
-    # Print header with bus labels
+    # Print header with bus channel names
     header = "  Motor"
-    for bus_idx in range(len(can_buses)):
-        header += f"        Bus {bus_idx + 1}     "
+    for can_bus in can_buses:
+        # Get channel name from the bus
+        channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else "unknown"
+        # Pad to consistent width
+        header += f"      {channel_name:^10}   "
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
