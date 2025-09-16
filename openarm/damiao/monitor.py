@@ -172,6 +172,98 @@ async def main(args: argparse.Namespace) -> None:
             bus.shutdown()
 
 
+async def read_and_display_registers(
+    all_bus_motors: list[list[Motor | None]],
+) -> None:
+    """Read and display motor register values in a table format.
+
+    Args:
+        all_bus_motors: List of motor lists for each bus.
+
+    """
+    print("\n" + "=" * 80)  # noqa: T201
+    print("Motor Register Values")  # noqa: T201
+    print("=" * 80)  # noqa: T201
+
+    # Define registers to read with their display names and units
+    register_info = [
+        # Protection parameters
+        ("Over Voltage", "V", "get_over_voltage", "{:.1f}"),
+        ("Under Voltage", "V", "get_under_voltage", "{:.1f}"),
+        ("Over Temperature", "°C", "get_over_temperature", "{:.1f}"),
+        ("Over Current", "A", "get_over_current", "{:.1f}"),
+        # Motor parameters
+        ("Torque Coefficient", "", "get_torque_coefficient", "{:.4f}"),
+        ("Gear Ratio", "", "get_gear_ratio", "{:.1f}"),
+        ("Gear Efficiency", "%", "get_gear_efficiency", "{:.1f}"),
+        # Limits
+        ("Position Limit", "rad", "get_position_limit", "{:.2f}"),
+        ("Velocity Limit", "rad/s", "get_velocity_limit", "{:.2f}"),
+        ("Torque Limit", "Nm", "get_torque_limit", "{:.2f}"),
+        # Control gains
+        ("Velocity KP", "", "get_velocity_kp", "{:.3f}"),
+        ("Velocity KI", "", "get_velocity_ki", "{:.3f}"),
+        ("Position KP", "", "get_position_kp", "{:.3f}"),
+        ("Position KI", "", "get_position_ki", "{:.3f}"),
+        # System info
+        ("Hardware Version", "", "get_hardware_version", "{}"),
+        ("Software Version", "", "get_software_version", "{}"),
+        ("Serial Number", "", "get_serial_number", "{}"),
+        # Physical properties
+        ("Motor Damping", "", "get_motor_damping", "{:.6f}"),
+        ("Motor Inertia", "", "get_motor_inertia", "{:.6f}"),
+        ("Pole Pairs", "", "get_motor_pole_pairs", "{}"),
+        ("Phase Resistance", "Ω", "get_motor_phase_resistance", "{:.4f}"),
+        ("Phase Inductance", "H", "get_motor_phase_inductance", "{:.6f}"),
+    ]
+
+    # Collect all active motors and their names
+    active_motors = []
+    motor_names = []
+    for bus_motors in all_bus_motors:
+        for motor_idx, motor in enumerate(bus_motors):
+            if motor is not None:
+                active_motors.append(motor)
+                motor_names.append(MOTOR_CONFIGS[motor_idx].name)
+
+    if not active_motors:
+        print("No active motors to read registers from")  # noqa: T201
+        return
+
+    # Print table header
+    header = f"{'Parameter':<25}"
+    for name in motor_names:
+        header += f"{name:>12}"
+    print(header)  # noqa: T201
+    print("-" * len(header))  # noqa: T201
+
+    # Read and display each register
+    for display_name, unit, method_name, fmt in register_info:
+        line = f"{display_name:<20}"
+        if unit:
+            line = f"{display_name:<20} ({unit:<3})"
+        else:
+            line = f"{display_name:<25}"
+
+        # Read register from each motor
+        for motor in active_motors:
+            try:
+                # Get the method and call it
+                method = getattr(motor, method_name)
+                value = await method()
+                # Format the value
+                formatted = fmt.format(value)
+                line += f"{formatted:>12}"
+            except Exception as e:  # noqa: BLE001
+                # If reading fails, show N/A
+                logger.debug("Failed to read %s: %s", method_name, e)
+                line += f"{'N/A':>12}"
+
+        print(line)  # noqa: T201
+
+    print("=" * 80 + "\n")  # noqa: T201
+
+
 async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901, PLR0912
     # Detect motors on each bus
     all_bus_motors = []
@@ -268,6 +360,11 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
             else:
                 bus_states.append(None)
         all_state_results.append(bus_states)
+
+    # Read and display registers if requested
+    if args.registers:
+        print("\nReading motor registers...")  # noqa: T201
+        await read_and_display_registers(all_bus_motors)
 
     # Call teleop or monitor based on flag
     if args.teleop:
@@ -758,6 +855,13 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Velocity parameter for slave motors (default: 1.0)",
+    )
+
+    parser.add_argument(
+        "--registers",
+        "-r",
+        action="store_true",
+        help="Read and display motor register values before monitoring",
     )
 
     return parser.parse_args()
