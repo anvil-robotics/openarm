@@ -16,10 +16,10 @@ from math import pi
 import can
 
 from openarm.bus import Bus
-from openarm.damiao.config import MOTOR_CONFIGS
-from openarm.damiao.encoding import (
+
+from .config import MOTOR_CONFIGS
+from .encoding import (
     ControlMode,
-    MOTOR_LIMITS,
     PosVelControlParams,
     RegisterAddress,
     decode_motor_state,
@@ -29,6 +29,7 @@ from openarm.damiao.encoding import (
     encode_enable_motor,
     encode_write_register_int,
 )
+from .motor import MOTOR_LIMITS
 
 # ANSI color codes
 RED = "\033[91m"
@@ -125,20 +126,33 @@ async def main(args: argparse.Namespace) -> None:
     print("="*60 + "\n")  # noqa: T201
     
     # Print header
-    header = "Bus Pair      "
+    header = "Source/Dest   "
     for config in MOTOR_CONFIGS:
-        header += f"   {config.name:>5}"
+        header += f"   {config.name:>7}"
     print(header)  # noqa: T201
     print("-" * len(header))  # noqa: T201
     
+    # Calculate number of lines needed for display
+    num_lines = len(bus_pairs) * 2  # Each pair needs 2 lines (source + dest)
+    
+    # Print initial empty lines for the display
+    for _ in range(num_lines):
+        print()  # noqa: T201
+    
     try:
         while True:
+            # Move cursor up to overwrite previous output
+            if num_lines > 0:
+                print(f"\033[{num_lines}A", end="")  # noqa: T201
+            
             # Process each bus pair
             for src_name, dst_name in bus_pairs:
                 src_bus = bus_objects[src_name]
                 dst_bus = bus_objects[dst_name]
                 
-                line = f"{src_name}->{dst_name}   "
+                # Store states for display
+                src_states = []
+                dst_states = []
                 
                 # Process each motor
                 for config in MOTOR_CONFIGS:
@@ -149,6 +163,7 @@ async def main(args: argparse.Namespace) -> None:
                             config.master_id, 
                             MOTOR_LIMITS[config.type]
                         )
+                        src_states.append(src_state)
                         
                         # Forward to destination
                         params = PosVelControlParams(
@@ -163,16 +178,31 @@ async def main(args: argparse.Namespace) -> None:
                             config.master_id,
                             MOTOR_LIMITS[config.type]
                         )
-                        
-                        # Display angle
-                        angle_deg = src_state.position * 180 / pi
-                        line += f"  {angle_deg:+7.1f}°"
+                        dst_states.append(dst_state)
                         
                     except Exception:  # noqa: BLE001
-                        line += "      N/A  "
+                        src_states.append(None)
+                        dst_states.append(None)
                 
-                # Clear line and print
-                print(f"\r{line}", end="")  # noqa: T201
+                # Display source line
+                src_line = f"\r{GREEN}{src_name:12}{RESET}  "
+                for state in src_states:
+                    if state:
+                        angle_deg = state.position * 180 / pi
+                        src_line += f"  {angle_deg:+7.1f}°"
+                    else:
+                        src_line += "      N/A  "
+                print(src_line + "\033[K")  # noqa: T201
+                
+                # Display destination line
+                dst_line = f"\r{YELLOW}  -> {dst_name:8}{RESET}  "
+                for state in dst_states:
+                    if state:
+                        angle_deg = state.position * 180 / pi
+                        dst_line += f"  {angle_deg:+7.1f}°"
+                    else:
+                        dst_line += "      N/A  "
+                print(dst_line + "\033[K")  # noqa: T201
                 
             # Small delay
             await asyncio.sleep(0.01)
