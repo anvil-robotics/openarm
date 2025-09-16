@@ -64,19 +64,15 @@ def _uint_to_float(value: int, min_val: float, max_val: float, bits: int) -> flo
     return normalized * (max_val - min_val) + min_val
 
 
-async def decode_motor_state_and_forward(
+async def decode_motor_state_any(
     src_bus: can.BusABC,
-    motor_limits: MotorLimits,
-    dst_bus: can.BusABC | None = None,
-    dst_slave_id: int | None = None
+    motor_limits: MotorLimits
 ) -> tuple[int, MotorState | None]:
-    """Decode motor state from any message and optionally forward position.
+    """Decode motor state from any message on the bus.
     
     Args:
         src_bus: Source CAN bus to receive from
         motor_limits: Motor physical limits for scaling
-        dst_bus: Optional destination bus to forward to
-        dst_slave_id: Optional slave ID for forwarding
     
     Returns:
         Tuple of (master_id, motor_state) where motor_state is None if decode failed
@@ -129,14 +125,6 @@ async def decode_motor_state_and_forward(
             temp_mos=t_mos,
             temp_rotor=t_rotor,
         )
-        
-        # Forward position if destination is provided
-        if dst_bus is not None and dst_slave_id is not None:
-            params = PosVelControlParams(
-                position=position,
-                velocity=1.0  # Default velocity
-            )
-            encode_control_pos_vel(dst_bus, dst_slave_id, params)
         
         return master_id, motor_state
         
@@ -275,11 +263,9 @@ async def main(args: argparse.Namespace) -> None:
                 dst_states = [None] * len(MOTOR_CONFIGS)
                 
                 # Decode any motor state from source
-                master_id, src_state = await decode_motor_state_and_forward(
+                master_id, src_state = await decode_motor_state_any(
                     src_can,
-                    MOTOR_LIMITS[MOTOR_CONFIGS[0].type],  # Temp limits, will fix below
-                    None,
-                    None
+                    MOTOR_LIMITS[MOTOR_CONFIGS[0].type]  # Temp limits, will fix below
                 )
                 
                 if src_state is not None and master_id in master_to_config:
@@ -293,7 +279,7 @@ async def main(args: argparse.Namespace) -> None:
                         # Forward position
                         params = PosVelControlParams(
                             position=src_state.position,
-                            velocity=1.0
+                            velocity=args.velocity
                         )
                         encode_control_pos_vel(dst_bus, config.slave_id, params)
                         
@@ -374,6 +360,13 @@ def parse_arguments() -> argparse.Namespace:
         "pairs",
         nargs="+",
         help="Bus pairs in format SOURCE:DEST (e.g., can0:can2 can1:can3)"
+    )
+    
+    parser.add_argument(
+        "--velocity",
+        type=float,
+        default=1.0,
+        help="Velocity for position control (default: 1.0)"
     )
     
     return parser.parse_args()
