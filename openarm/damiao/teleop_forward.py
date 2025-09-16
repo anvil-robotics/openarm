@@ -335,7 +335,7 @@ async def main(args: argparse.Namespace) -> None:
                 print(dst_line + "\033[K")  # noqa: T201
                 
             # Small delay
-            await asyncio.sleep(0.01)
+            # await asyncio.sleep(0.01)
             
     except KeyboardInterrupt:
         print("\n\nStopping forwarding...")  # noqa: T201
