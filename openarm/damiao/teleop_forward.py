@@ -293,6 +293,11 @@ async def main(args: argparse.Namespace) -> None:
                             pass
                     
                     src_states[motor_idx] = src_state
+                    
+                    # If we just received J7, send refresh to J8
+                    if config.slave_id == 0x07:  # J7
+                        src_bus = bus_objects[src_name]
+                        encode_refresh_status(src_bus, 0x08)  # J8
                 
                 # Display source line
                 src_line = f"\r{GREEN}{src_name:12}{RESET}  "
@@ -317,13 +322,6 @@ async def main(args: argparse.Namespace) -> None:
                     # Read-only mode - no destination
                     dst_line = f"\r  (read-only)    " + " " * (len(src_states) * 11)
                 print(dst_line + "\033[K")  # noqa: T201
-            
-            # Send refresh to J8 (motor 8) on all source buses
-            source_buses = {src for src, _ in bus_pairs}
-            for src_name in source_buses:
-                src_bus = bus_objects[src_name]
-                # J8 is motor with slave_id 0x08
-                encode_refresh_status(src_bus, 0x08)
             
             # Small delay
             # await asyncio.sleep(0.01)
