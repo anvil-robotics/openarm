@@ -109,13 +109,13 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
     bus_configs = list(can.detect_available_configs(interfaces=interfaces))
 
     if not bus_configs:
-        print(  # noqa: T201
-            f"{red}No CAN buses detected. Please check your CAN configuration.{reset}"
+        sys.stderr.write(
+            f"{red}No CAN buses detected. Please check your CAN configuration.{reset}\n"
         )
         return
 
-    print(f"\n{green}Detected {len(bus_configs)} CAN bus(es){reset}")  # noqa: T201
-    print("-" * 60)  # noqa: T201
+    sys.stdout.write(f"\n{green}Detected {len(bus_configs)} CAN bus(es){reset}\n")
+    sys.stdout.write("-" * 60 + "\n")
 
     # Get slave IDs from motor configs
     slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
@@ -125,8 +125,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
 
     # Scan each bus
     for bus_config in bus_configs:
-        print(  # noqa: T201
-            f"\n{yellow}Bus {bus_config['channel']}: Scanning for motors...{reset}"
+        sys.stdout.write(
+            f"\n{yellow}Bus {bus_config['channel']}: Scanning for motors...{reset}\n"
         )
 
         # Create bus
@@ -135,7 +135,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
                 channel=bus_config["channel"], interface=bus_config["interface"]
             )
         except Exception as e:  # noqa: BLE001
-            print(f"  {red}Error opening bus: {e}{reset}")  # noqa: T201
+            sys.stderr.write(f"  {red}Error opening bus: {e}{reset}\n")
             continue
 
         # Scan the bus
@@ -144,9 +144,9 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
             detected = list(detect_motors(can_bus, slave_ids, timeout=args.timeout))
 
             if not detected:
-                print(f"  {red}No motors detected on this bus{reset}")  # noqa: T201
+                sys.stdout.write(f"  {red}No motors detected on this bus{reset}\n")
             else:
-                print(f"  Found {len(detected)} motor(s):")  # noqa: T201
+                sys.stdout.write(f"  Found {len(detected)} motor(s):\n")
 
             # Create lookup for detected motors by slave ID
             detected_lookup = {info.slave_id: info for info in detected}
@@ -157,33 +157,33 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
                     info = detected_lookup[config.slave_id]
                     # Check if master ID matches
                     if info.master_id == config.master_id:
-                        print(  # noqa: T201
+                        sys.stdout.write(
                             f"  {green}✓{reset} {config.name}: "
                             f"Slave ID 0x{info.slave_id:02X}, "
-                            f"Master ID 0x{info.master_id:02X}"
+                            f"Master ID 0x{info.master_id:02X}\n"
                         )
                     else:
-                        print(  # noqa: T201
+                        sys.stderr.write(
                             f"  {yellow}⚠{reset} {config.name}: "
                             f"Slave ID 0x{info.slave_id:02X}, "
                             f"Master ID 0x{info.master_id:02X} "
                             f"{yellow}(Expected Master: "
-                            f"0x{config.master_id:02X}){reset}"
+                            f"0x{config.master_id:02X}){reset}\n"
                         )
                 else:
-                    print(  # noqa: T201
+                    sys.stdout.write(
                         f"  {red}✗{reset} {config.name}: "
                         f"Slave ID 0x{config.slave_id:02X} "
-                        f"{red}[NOT DETECTED]{reset}"
+                        f"{red}[NOT DETECTED]{reset}\n"
                     )
 
             # Show any unknown motors (not in our config)
             for info in detected:
                 if info.slave_id not in config_lookup:
-                    print(  # noqa: T201
+                    sys.stdout.write(
                         f"  {yellow}?{reset} Unknown motor: "
                         f"Slave ID 0x{info.slave_id:02X}, "
-                        f"Master ID 0x{info.master_id:02X}"
+                        f"Master ID 0x{info.master_id:02X}\n"
                     )
         finally:
             can_bus.shutdown()
@@ -221,10 +221,10 @@ def run() -> None:
     try:
         main(args)
     except KeyboardInterrupt:
-        print("\nInterrupted by user.")  # noqa: T201
+        sys.stderr.write("\nInterrupted by user.\n")
         sys.exit(0)
     except Exception as e:  # noqa: BLE001
-        print(f"Error: {e}")  # noqa: T201
+        sys.stderr.write(f"Error: {e}\n")
         sys.exit(1)
 
 

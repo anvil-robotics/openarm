@@ -1,5 +1,5 @@
 """Set zero position for all Damiao motors on all buses."""
-# ruff: noqa: T201, BLE001
+# ruff: noqa: BLE001
 
 import argparse
 import asyncio
@@ -32,10 +32,10 @@ async def main(args: argparse.Namespace) -> None:
         can_buses = []
 
     if not can_buses:
-        print(f"{RED}Error: No CAN buses detected.{RESET}")
+        sys.stderr.write(f"{RED}Error: No CAN buses detected.{RESET}\n")
         return None
 
-    print(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}")
+    sys.stdout.write(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}\n")
 
     try:
         return await _main(args, can_buses)
@@ -48,23 +48,23 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG
     """Process motors on all buses."""
     # Scan and set zero for each bus
     for bus_idx, can_bus in enumerate(can_buses):
-        print(f"\n{'=' * 50}")
-        print(f"Bus {bus_idx + 1} of {len(can_buses)}")
-        print(f"{'=' * 50}")
+        sys.stdout.write(f"\n{'=' * 50}\n")
+        sys.stdout.write(f"Bus {bus_idx + 1} of {len(can_buses)}\n")
+        sys.stdout.write(f"{'=' * 50}\n")
 
-        print(f"Scanning for motors on bus {bus_idx + 1}...")
+        sys.stdout.write(f"Scanning for motors on bus {bus_idx + 1}...\n")
         slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
 
         # Detect motors using raw CAN bus
         detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
 
         if not detected:
-            print(
-                f"{YELLOW}No motors detected on bus {bus_idx + 1}, skipping...{RESET}"
+            sys.stdout.write(
+                f"{YELLOW}No motors detected on bus {bus_idx + 1}, skipping...{RESET}\n"
             )
             continue
 
-        print(f"\nDetected {len(detected)} motor(s) on bus {bus_idx + 1}")
+        sys.stdout.write(f"\nDetected {len(detected)} motor(s) on bus {bus_idx + 1}\n")
 
         # Create lookup for detected motors by slave ID
         detected_lookup = {info.slave_id: info for info in detected}
@@ -78,10 +78,10 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG
 
             # Check if master ID matches expected
             if detected_info.master_id != config.master_id:
-                print(
+                sys.stderr.write(
                     f"\n{YELLOW}⚠ {config.name} (ID 0x{config.slave_id:02X}): "
                     f"Master ID mismatch (expected 0x{config.master_id:02X}, "
-                    f"got 0x{detected_info.master_id:02X}){RESET}"
+                    f"got 0x{detected_info.master_id:02X}){RESET}\n"
                 )
                 continue
 
@@ -95,27 +95,27 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG
             )
 
             # Process motor - disable and set zero
-            print(f"  {config.name} (ID 0x{config.slave_id:02X}): ", end="")
+            sys.stdout.write(f"  {config.name} (ID 0x{config.slave_id:02X}): ")
 
             # Disable motor first (required for setting zero)
             try:
                 await motor.disable()
             except Exception as e:
-                print(f"{RED}✗ Failed to disable: {e}{RESET}")
+                sys.stderr.write(f"{RED}✗ Failed to disable: {e}{RESET}\n")
                 continue
 
             # Set zero position
             try:
                 await motor.set_zero_position()
                 await motor.save_parameters()
-                print(f"{GREEN}✓ Zero set{RESET}")
+                sys.stdout.write(f"{GREEN}✓ Zero set{RESET}\n")
             except Exception as e:
-                print(f"{RED}✗ Failed to set zero: {e}{RESET}")
+                sys.stderr.write(f"{RED}✗ Failed to set zero: {e}{RESET}\n")
                 continue
 
-    print(f"\n{'=' * 50}")
-    print(f"{GREEN}Zero position setting complete for all buses!{RESET}")
-    print(f"{'=' * 50}\n")
+    sys.stdout.write(f"\n{'=' * 50}\n")
+    sys.stdout.write(f"{GREEN}Zero position setting complete for all buses!{RESET}\n")
+    sys.stdout.write(f"{'=' * 50}\n\n")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -141,10 +141,10 @@ def run() -> None:
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:
-        print(f"\n{YELLOW}Interrupted by user.{RESET}")
+        sys.stderr.write(f"\n{YELLOW}Interrupted by user.{RESET}\n")
         sys.exit(0)
     except Exception as e:
-        print(f"{RED}Error: {e}{RESET}")
+        sys.stderr.write(f"{RED}Error: {e}{RESET}\n")
         sys.exit(1)
 
 

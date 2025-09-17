@@ -47,28 +47,14 @@ from . import (
 )
 
 
-# Output utilities for CLI
-def _output(message: str) -> None:
-    """Output message to stdout."""
-    print(message)  # noqa: T201
-
-
-def _error(message: str) -> None:
-    """Output error message to stderr."""
-    print(message, file=sys.stderr)  # noqa: T201
-
-
-def _format_motor_state(state: MotorState, slave_id: int) -> str:
-    """Format motor state for display."""
-    lines = [
-        f"Motor {slave_id} state:",
-        f"  Position: {state.position:.6f} rad",
-        f"  Velocity: {state.velocity:.6f} rad/s",
-        f"  Torque: {state.torque:.6f} Nm",
-        f"  MOS Temp: {state.temp_mos}°C",
-        f"  Rotor Temp: {state.temp_rotor}°C",
-    ]
-    return "\n".join(lines)
+def _output_motor_state(state: MotorState, slave_id: int) -> None:
+    """Output motor state directly to stdout."""
+    sys.stdout.write(f"Motor {slave_id} state:\n")
+    sys.stdout.write(f"  Position: {state.position:.6f} rad\n")
+    sys.stdout.write(f"  Velocity: {state.velocity:.6f} rad/s\n")
+    sys.stdout.write(f"  Torque: {state.torque:.6f} Nm\n")
+    sys.stdout.write(f"  MOS Temp: {state.temp_mos}°C\n")
+    sys.stdout.write(f"  Rotor Temp: {state.temp_rotor}°C\n")
 
 
 def _create_bus(iface: str) -> Bus:
@@ -89,8 +75,8 @@ async def _enable(args: argparse.Namespace) -> None:
 
     state = await motor.enable()
 
-    _output(f"Motor {args.slave_id} enabled successfully")
-    _output(_format_motor_state(state, args.slave_id))
+    sys.stdout.write(f"Motor {args.slave_id} enabled successfully\n")
+    _output_motor_state(state, args.slave_id)
 
 
 async def _disable(args: argparse.Namespace) -> None:
@@ -103,8 +89,8 @@ async def _disable(args: argparse.Namespace) -> None:
 
     state = await motor.disable()
 
-    _output(f"Motor {args.slave_id} disabled successfully")
-    _output(_format_motor_state(state, args.slave_id))
+    sys.stdout.write(f"Motor {args.slave_id} disabled successfully\n")
+    _output_motor_state(state, args.slave_id)
 
 
 async def _set_zero(args: argparse.Namespace) -> None:
@@ -117,8 +103,8 @@ async def _set_zero(args: argparse.Namespace) -> None:
 
     state = await motor.set_zero_position()
 
-    _output(f"Zero position set for motor {args.slave_id}")
-    _output(_format_motor_state(state, args.slave_id))
+    sys.stdout.write(f"Zero position set for motor {args.slave_id}\n")
+    _output_motor_state(state, args.slave_id)
 
 
 async def _refresh(args: argparse.Namespace) -> None:
@@ -130,7 +116,7 @@ async def _refresh(args: argparse.Namespace) -> None:
     )
 
     state = await motor.refresh_status()
-    _output(_format_motor_state(state, args.slave_id))
+    _output_motor_state(state, args.slave_id)
 
 
 async def _control_mit(args: argparse.Namespace) -> None:
@@ -151,11 +137,11 @@ async def _control_mit(args: argparse.Namespace) -> None:
 
     state = await motor.control_mit(params)
 
-    _output(f"MIT control sent to motor {args.slave_id}")
-    _output(
+    sys.stdout.write(f"MIT control sent to motor {args.slave_id}\n")
+    sys.stdout.write(
         f"Response - Position: {state.position:.6f}, "
         f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}"
+        f"Torque: {state.torque:.6f}\n"
     )
 
 
@@ -170,11 +156,11 @@ async def _control_pos_vel(args: argparse.Namespace) -> None:
     params = PosVelControlParams(position=args.pos, velocity=args.vel)
     state = await motor.control_pos_vel(params)
 
-    _output(f"Position/velocity control sent to motor {args.slave_id}")
-    _output(
+    sys.stdout.write(f"Position/velocity control sent to motor {args.slave_id}\n")
+    sys.stdout.write(
         f"Response - Position: {state.position:.6f}, "
         f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}"
+        f"Torque: {state.torque:.6f}\n"
     )
 
 
@@ -189,11 +175,11 @@ async def _control_vel(args: argparse.Namespace) -> None:
     params = VelControlParams(velocity=args.vel)
     state = await motor.control_vel(params)
 
-    _output(f"Velocity control sent to motor {args.slave_id}")
-    _output(
+    sys.stdout.write(f"Velocity control sent to motor {args.slave_id}\n")
+    sys.stdout.write(
         f"Response - Position: {state.position:.6f}, "
         f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}"
+        f"Torque: {state.torque:.6f}\n"
     )
 
 
@@ -211,11 +197,11 @@ async def _control_pos_force(args: argparse.Namespace) -> None:
 
     state = await motor.control_pos_force(params)
 
-    _output(f"Position/force control sent to motor {args.slave_id}")
-    _output(
+    sys.stdout.write(f"Position/force control sent to motor {args.slave_id}\n")
+    sys.stdout.write(
         f"Response - Position: {state.position:.6f}, "
         f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}"
+        f"Torque: {state.torque:.6f}\n"
     )
 
 
@@ -230,9 +216,9 @@ async def _save_parameters(args: argparse.Namespace) -> None:
     response = await motor.save_parameters()
 
     if response.success:
-        _output(f"Parameters saved successfully for motor {args.slave_id}")
+        sys.stdout.write(f"Parameters saved successfully for motor {args.slave_id}\n")
     else:
-        _error(f"Failed to save parameters for motor {args.slave_id}")
+        sys.stderr.write(f"Failed to save parameters for motor {args.slave_id}\n")
         sys.exit(1)
 
 
@@ -308,8 +294,8 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
     }
 
     if param_name not in param_methods:
-        _error(f"Unknown parameter: {param_name}")
-        _error(f"Available parameters: {', '.join(param_methods.keys())}")
+        sys.stderr.write(f"Unknown parameter: {param_name}\n")
+        sys.stderr.write(f"Available parameters: {', '.join(param_methods.keys())}\n")
         sys.exit(1)
 
     value = await param_methods[param_name]()
@@ -318,9 +304,9 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
     if param_name == "control_mode":
         # Convert ControlMode enum value to name
         mode_name = ControlMode(value).name if isinstance(value, int) else value.name
-        _output(f"{param_name}: {mode_name}")
+        sys.stdout.write(f"{param_name}: {mode_name}\n")
     else:
-        _output(f"{param_name}: {value}")
+        sys.stdout.write(f"{param_name}: {value}\n")
 
 
 async def _motor_set_param(args: argparse.Namespace) -> None:
@@ -375,8 +361,8 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
     }
 
     if param_name not in param_methods:
-        _error(f"Unknown parameter: {param_name}")
-        _error(f"Available parameters: {', '.join(param_methods.keys())}")
+        sys.stderr.write(f"Unknown parameter: {param_name}\n")
+        sys.stderr.write(f"Available parameters: {', '.join(param_methods.keys())}\n")
         sys.exit(1)
 
     # Handle different parameter types
@@ -385,8 +371,10 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
         try:
             value = ControlMode[value.upper()]
         except KeyError:
-            _error(f"Invalid control mode: {value}")
-            _error(f"Valid modes: {', '.join([m.name for m in ControlMode])}")
+            sys.stderr.write(f"Invalid control mode: {value}\n")
+            sys.stderr.write(
+                f"Valid modes: {', '.join([m.name for m in ControlMode])}\n"
+            )
             sys.exit(1)
     elif param_name in ["master_id", "slave_id", "timeout", "can_baudrate"]:
         value = int(value)
@@ -394,7 +382,7 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
         value = float(value)
 
     result = await param_methods[param_name](value)
-    _output(f"{param_name} set to: {result}")
+    sys.stdout.write(f"{param_name} set to: {result}\n")
 
 
 def _run_async(coro: Coroutine[Any, Any, None]) -> None:
