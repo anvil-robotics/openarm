@@ -4,9 +4,34 @@ A Python package for robotic arm control and automation.
 
 ## Installation
 
-```bash
-pip install -e .
-```
+### Prerequisites
+
+- Python 3.11 or higher
+
+### Setup
+
+1. **Create a virtual environment** (recommended):
+
+   ```bash
+   # Using venv
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+   # Or using conda/mamba
+   conda create -n openarm python=3.11
+   conda activate openarm
+   ```
+
+2. **Install OpenArm in development mode**:
+
+   ```bash
+   pip install -e .
+   ```
+
+   This installs all required dependencies including:
+   - `python-can` for CAN bus communication
+   - `ikpy` for inverse kinematics
+   - `mujoco` for physics simulation
 
 ## Usage
 
