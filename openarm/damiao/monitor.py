@@ -32,7 +32,8 @@ import can
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor, PosVelControlParams
+from .encoding import ControlMode, MitControlParams, MotorStatus, PosVelControlParams
+from .motor import Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 from .gravity import GravityCompensator
@@ -40,10 +41,38 @@ from .gravity import GravityCompensator
 # ANSI color codes for terminal output
 RED = "\033[91m"
 GREEN = "\033[92m"
+YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 # Constants
 FOLLOW_SPEC_PARTS = 4  # MASTER:POSITION:SLAVE:POSITION
+
+
+def format_status(status: int) -> str:
+    """Format motor status for display with color coding, hex value and text."""
+    hex_str = f"0x{status:X}"
+    try:
+        status_enum = MotorStatus(status)
+        if status_enum == MotorStatus.ENABLED:
+            return f"{GREEN}{hex_str}:EN{RESET}"  # Enabled - green
+        elif status_enum == MotorStatus.DISABLED:
+            return f"{hex_str}:DS"  # Disabled - normal
+        else:
+            # Error states - red with text
+            status_text = {
+                MotorStatus.OVERVOLTAGE: "OV",  # Overvoltage
+                MotorStatus.UNDERVOLTAGE: "UV",  # Undervoltage
+                MotorStatus.OVERCURRENT: "OC",  # Overcurrent
+                MotorStatus.MOS_OVERTEMPERATURE: "MT",  # MOS overtemp
+                MotorStatus.MOTOR_COIL_OVERTEMPERATURE: "CT",  # Coil overtemp
+                MotorStatus.COMMUNICATION_LOSS: "CL",  # Comm loss
+                MotorStatus.OVERLOAD: "OL",  # Overload
+            }
+            text = status_text.get(status_enum, "ER")
+            return f"{RED}{hex_str}:{text}{RESET}"
+    except ValueError:
+        # Unknown status code - yellow
+        return f"{YELLOW}{hex_str}:??{RESET}"
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -104,6 +133,18 @@ class Arm:
                     logger.exception("Motor %d: Error", idx + 1)
                     print(f"{RED}    Motor {idx + 1}: Error - {e}{RESET}")  # noqa: T201
 
+    async def set_motor_velocity_limits(self) -> None:
+        """Set velocity limits for specific motors (J3 and J4 to 30 rad/s)."""
+        for idx, motor in enumerate(self.motors):
+            if motor is not None and idx in [2, 3]:  # J3 (index 2) and J4 (index 3)
+                try:
+                    await motor.set_velocity_limit(30.0)
+                    logger.info("Motor J%d: Velocity limit set to 30 rad/s", idx + 1)
+                    print(f"    Motor J{idx + 1}: Velocity limit set to 30 rad/s")  # noqa: T201
+                except Exception as e:
+                    logger.exception("Motor J%d: Failed to set velocity limit", idx + 1)
+                    print(f"{RED}    Motor J{idx + 1}: Failed to set velocity limit - {e}{RESET}")  # noqa: T201
+
     async def refresh_states(self) -> None:
         """Refresh states for all motors."""
         new_states = []
@@ -141,6 +182,120 @@ async def main(args: argparse.Namespace) -> None:
     finally:
         for bus in can_buses:
             bus.shutdown()
+
+
+async def read_and_display_registers(
+    can_buses: list[can.BusABC],
+    all_bus_motors: list[list[Motor | None]],
+) -> None:
+    """Read and display motor register values in a table format per bus.
+
+    Args:
+        can_buses: List of CAN bus interfaces.
+        all_bus_motors: List of motor lists for each bus.
+
+    """
+    print("\n" + "=" * 80)  # noqa: T201
+    print("Motor Register Values")  # noqa: T201
+    print("=" * 80)  # noqa: T201
+
+    # ANSI color codes for register display
+    GRAY = "\033[90m"  # Gray for read-only
+    
+    # Define registers to read with their display names, units, and writability
+    # Format: (display_name, unit, getter_method, format_string, is_writable)
+    register_info = [
+        # Protection parameters - all writable (have set_* methods)
+        ("Over Voltage", "V", "get_over_voltage", "{:.1f}", True),  # set_over_voltage
+        ("Under Voltage", "V", "get_under_voltage", "{:.1f}", True),  # set_under_voltage
+        ("Over Temperature", "°C", "get_over_temperature", "{:.1f}", True),  # set_over_temperature
+        ("Over Current", "A", "get_over_current", "{:.1f}", True),  # set_over_current
+        # Motor parameters
+        ("Torque Coefficient", "", "get_torque_coefficient", "{:.4f}", True),  # set_torque_coefficient
+        ("Gear Ratio", "", "get_gear_ratio", "{:.1f}", False),  # NO set_gear_ratio - READ-ONLY
+        ("Gear Efficiency", "%", "get_gear_efficiency", "{:.1f}", True),  # set_gear_efficiency
+        # Limits - all writable
+        ("Position Limit", "rad", "get_position_limit", "{:.2f}", True),  # set_position_limit
+        ("Velocity Limit", "rad/s", "get_velocity_limit", "{:.2f}", True),  # set_velocity_limit
+        ("Torque Limit", "Nm", "get_torque_limit", "{:.2f}", True),  # set_torque_limit
+        # Control gains - all writable
+        ("Velocity KP", "", "get_velocity_kp", "{:.3f}", True),  # set_velocity_kp
+        ("Velocity KI", "", "get_velocity_ki", "{:.3f}", True),  # set_velocity_ki
+        ("Position KP", "", "get_position_kp", "{:.3f}", True),  # set_position_kp
+        ("Position KI", "", "get_position_ki", "{:.3f}", True),  # set_position_ki
+        # System info - all read-only
+        ("Hardware Version", "", "get_hardware_version", "{}", False),  # NO setter - READ-ONLY
+        ("Software Version", "", "get_software_version", "{}", False),  # NO setter - READ-ONLY
+        ("Serial Number", "", "get_serial_number", "{}", False),  # NO setter - READ-ONLY
+        # Physical properties
+        ("Motor Damping", "", "get_motor_damping", "{:.6f}", False),  # NO set_motor_damping - READ-ONLY
+        ("Motor Inertia", "", "get_motor_inertia", "{:.6f}", False),  # NO set_motor_inertia - READ-ONLY
+        ("Pole Pairs", "", "get_motor_pole_pairs", "{}", False),  # NO setter - READ-ONLY
+        ("Phase Resistance", "Ω", "get_motor_phase_resistance", "{:.4f}", False),  # NO setter - READ-ONLY
+        ("Phase Inductance", "H", "get_motor_phase_inductance", "{:.6f}", False),  # NO setter - READ-ONLY
+    ]
+
+    # Process each bus separately
+    for bus_idx, (can_bus, bus_motors) in enumerate(zip(can_buses, all_bus_motors, strict=False)):
+        # Get channel name
+        channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else f"bus{bus_idx}"
+        
+        # Collect active motors and their names for this bus
+        active_motors = []
+        motor_names = []
+        for motor_idx, motor in enumerate(bus_motors):
+            if motor is not None:
+                active_motors.append(motor)
+                motor_names.append(MOTOR_CONFIGS[motor_idx].name)
+        
+        if not active_motors:
+            continue  # Skip this bus if no active motors
+        
+        # Print bus header
+        print(f"\nBus: {channel_name}")  # noqa: T201
+        print("-" * 60)  # noqa: T201
+        
+        # Print table header
+        header = f"{'Parameter':<30}"
+        for name in motor_names:
+            header += f"{name:>12}"
+        print(header)  # noqa: T201
+        print("-" * len(header))  # noqa: T201
+
+        # Read and display each register
+        for display_name, unit, method_name, fmt, is_writable in register_info:
+            if unit:
+                param_label = f"{display_name} ({unit})"
+            else:
+                param_label = display_name
+            
+            # Apply color based on writability
+            if is_writable:
+                # Writable - green
+                line = f"{GREEN}{param_label:<30}"
+            else:
+                # Read-only - gray
+                line = f"{GRAY}{param_label:<30}"
+
+            # Read register from each motor on this bus
+            for motor in active_motors:
+                try:
+                    # Get the method and call it
+                    method = getattr(motor, method_name)
+                    value = await method()
+                    # Format the value
+                    formatted = fmt.format(value)
+                    line += f"{formatted:>12}"
+                except Exception as e:  # noqa: BLE001
+                    # If reading fails, show N/A
+                    logger.debug("Failed to read %s: %s", method_name, e)
+                    line += f"{'N/A':>12}"
+
+            # Reset color at end of line
+            line += RESET
+            print(line)  # noqa: T201
+
+    print("\n" + "=" * 80 + "\n")  # noqa: T201
 
 
 async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None:  # noqa: C901, PLR0912
@@ -240,6 +395,11 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
                 bus_states.append(None)
         all_state_results.append(bus_states)
 
+    # Read and display registers if requested
+    if args.registers:
+        print("\nReading motor registers...")  # noqa: T201
+        await read_and_display_registers(can_buses, all_bus_motors)
+
     # Call teleop or monitor based on flag
     if args.teleop:
         await teleop(can_buses, all_bus_motors, all_state_results, args)
@@ -263,10 +423,13 @@ async def monitor_motors(  # noqa: C901, PLR0912
     # Start continuous monitoring with column display
     print("\nContinuously monitoring motor angles (Ctrl+C to stop):\n")  # noqa: T201
 
-    # Print header with bus labels
-    header = "  Motor"
-    for bus_idx in range(len(can_buses)):
-        header += f"        Bus {bus_idx + 1}     "
+    # Print header with bus channel names
+    header = "  Motor      "
+    for can_bus in can_buses:
+        # Get channel name from the bus
+        channel_name = str(can_bus.channel) if hasattr(can_bus, "channel") else "unknown"
+        # Pad header for wider display (status, pos, torque, temp_mos, temp_rotor)
+        header += f"  {channel_name:^60}  "
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -274,7 +437,7 @@ async def monitor_motors(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in range(len(can_buses)):
-            line += "  Initializing...  "
+            line += "                      Initializing...                         "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -294,13 +457,14 @@ async def monitor_motors(  # noqa: C901, PLR0912
                 for bus_idx in range(len(can_buses)):
                     state = all_current_states[bus_idx][motor_idx]
                     if state:
-                        # Show absolute angle
+                        # Show status, position, torque, and temperatures
                         angle_deg = state.position * 180 / pi
-                        line += f"  {angle_deg:+8.2f}°     "
+                        status_str = format_status(state.status)
+                        line += f"  S:{status_str} P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                     elif all_bus_motors[bus_idx][motor_idx] is None:
-                        line += "       N/A        "
+                        line += "                                N/A                             "
                     else:
-                        line += "    No state      "
+                        line += "                             No state                           "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
@@ -481,16 +645,20 @@ async def teleop(  # noqa: C901, PLR0912
         else:  # master
             print(f"  {arm.channel}: Enabling motors with MIT control (master)")  # noqa: T201
             await arm.enable_all_motors(ControlMode.MIT)
+        
+        # Set velocity limits for J3 and J4
+        await arm.set_motor_velocity_limits()
 
     # Start teleoperation with monitoring display
     print("\nTeleoperation mode starting...\n")  # noqa: T201
 
     # Print header with bus labels showing channel names and roles
-    header = "  Motor"
+    header = "  Motor      "
     for arm in arms:
         # Slave: show S* for mirror mode, S for normal; Master: M
         role = ("S*" if arm.mirror_mode else "S") if arm.is_slave else "M"
-        header += f"   {arm.channel}({role})   "
+        # Pad header for wider display (with status)
+        header += f"  {arm.channel}({role}):".ljust(62)
     print(header)  # noqa: T201
     print("  " + "-" * (len(header) - 2))  # noqa: T201
 
@@ -498,7 +666,7 @@ async def teleop(  # noqa: C901, PLR0912
     for config in MOTOR_CONFIGS:
         line = f"  {config.name:<12}"
         for _ in arms:
-            line += "  Initializing...  "
+            line += "                      Initializing...                         "
         print(line)  # noqa: T201
 
     # Number of motors (lines to move up)
@@ -549,18 +717,19 @@ async def teleop(  # noqa: C901, PLR0912
                     if motor_idx < len(arm.states):
                         state = arm.states[motor_idx]
                         if state:
-                            # Show absolute angle
+                            # Show status, position, torque, and temperatures
                             angle_deg = state.position * 180 / pi
-                            line += f"  {angle_deg:+8.2f}°     "
+                            status_str = format_status(state.status)
+                            line += f"  S:{status_str} P:{angle_deg:+7.1f}° T:{state.torque:+6.2f}Nm M:{state.temp_mos:3d}°C R:{state.temp_rotor:3d}°C  "
                         elif (
                             motor_idx >= len(arm.motors)
                             or arm.motors[motor_idx] is None
                         ):
-                            line += "       N/A        "
+                            line += "                                N/A                             "
                         else:
-                            line += "    No state      "
+                            line += "                             No state                           "
                     else:
-                        line += "       N/A        "
+                        line += "                                N/A                             "
                 print(line + "\033[K")  # noqa: T201
 
             # Small delay before refresh
@@ -723,6 +892,13 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Velocity parameter for slave motors (default: 1.0)",
+    )
+
+    parser.add_argument(
+        "--registers",
+        "-r",
+        action="store_true",
+        help="Read and display motor register values before monitoring",
     )
 
     return parser.parse_args()

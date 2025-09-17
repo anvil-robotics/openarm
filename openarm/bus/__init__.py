@@ -46,7 +46,9 @@ class Bus:
         """
         queue = self.lookup[arbitration_id]
         if len(queue) > 0:
-            return queue.pop(0)
+            while len(queue) > 0:
+                r = queue.pop(0)
+            return r
 
         if timeout is None:
             while True:
@@ -55,7 +57,7 @@ class Bus:
                     continue
                 if msg.arbitration_id == arbitration_id:
                     return msg
-                queue.append(msg)
+                self.lookup[msg.arbitration_id].append(msg)
         else:
             end = time() + timeout
             while timeout > 0:
@@ -66,7 +68,7 @@ class Bus:
                     continue
                 if msg.arbitration_id == arbitration_id:
                     return msg
-                queue.append(msg)
+                self.lookup[msg.arbitration_id].append(msg)
                 timeout = end - time()
 
         return None
