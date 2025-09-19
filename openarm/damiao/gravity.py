@@ -155,15 +155,17 @@ async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
         parts = port_spec.split(":")
         if len(parts) != 2:  # noqa: PLR2004
             # Invalid format, exit early
-            print(  # noqa: T201
-                f"Error: Invalid format '{port_spec}'. Expected format: PORT:POSITION"
+            sys.stderr.write(
+                f"Error: Invalid format '{port_spec}'. Expected format: PORT:POSITION\n"
             )
-            print("Example: --port can0:left --port can1:right")  # noqa: T201
+            sys.stderr.write("Example: --port can0:left --port can1:right\n")
             return
         port_name, position = parts
         if position not in ["left", "right"]:
             # Invalid position, exit early
-            print(f"Error: Invalid position '{position}'. Must be 'left' or 'right'")  # noqa: T201
+            sys.stderr.write(
+                f"Error: Invalid position '{position}'. Must be 'left' or 'right'\n"
+            )
             return
         port_configs.append((port_name, position))
 
@@ -326,10 +328,10 @@ async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithG
     def raw_print(msg: str = "") -> None:
         """Print with proper line endings in raw mode."""
         if raw_mode:
-            print(msg.replace("\n", "\r\n"), end="")  # noqa: T201
+            sys.stdout.write(msg.replace("\n", "\r\n"))
             sys.stdout.flush()
         else:
-            print(msg)  # noqa: T201
+            sys.stdout.write(msg + "\n")
 
     try:
         while True:
