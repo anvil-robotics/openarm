@@ -12,6 +12,7 @@ dependencies = [
   "python-can",
   "ikpy>=3.4.2",
   "mujoco>=3.3.5",
+  "websockets>=15.0.1",
 ]
 
 [project.scripts]
