@@ -1,7 +1,6 @@
 """Set zero position for all Damiao motors on all buses."""
 # ruff: noqa: BLE001
 
-import argparse
 import asyncio
 import sys
 
@@ -20,7 +19,7 @@ YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 
-async def main(args: argparse.Namespace) -> None:
+async def main() -> None:
     """Set zero position for all motors."""
     # Create CAN buses
     try:
@@ -38,13 +37,13 @@ async def main(args: argparse.Namespace) -> None:
     sys.stdout.write(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}\n")
 
     try:
-        return await _main(args, can_buses)
+        return await _main(can_buses)
     finally:
         for bus in can_buses:
             bus.shutdown()
 
 
-async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG001
+async def _main(can_buses: list) -> None:
     """Process motors on all buses."""
     # Scan and set zero for each bus
     for bus_idx, can_bus in enumerate(can_buses):
@@ -118,28 +117,10 @@ async def _main(args: argparse.Namespace, can_buses: list) -> None:  # noqa: ARG
     sys.stdout.write(f"{'=' * 50}\n\n")
 
 
-def parse_arguments() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Set zero position for all Damiao motors on all buses"
-    )
-
-    parser.add_argument(
-        "--interface",
-        "-i",
-        default="can0",
-        help="CAN interface name (default: can0, ignored on Windows/macOS)",
-    )
-
-    return parser.parse_args()
-
-
 def run() -> None:
     """Run the set_zero script."""
-    args = parse_arguments()
-
     try:
-        asyncio.run(main(args))
+        asyncio.run(main())
     except KeyboardInterrupt:
         sys.stderr.write(f"\n{YELLOW}Interrupted by user.{RESET}\n")
         sys.exit(0)
