@@ -213,7 +213,7 @@ async def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
 
     try:
         # Run gravity compensation for all selected buses together
-        arms = await _main(args, selected_buses)
+        arms = await _main(selected_buses)
     finally:
         # SAFETY: Disable all motors first to avoid unwanted movements
         if arms:
@@ -237,7 +237,7 @@ def check_keyboard_input() -> str | None:
     return None
 
 
-async def _main(args: argparse.Namespace, selected_buses: list) -> list[ArmWithGravity]:  # noqa: C901, PLR0912, ARG001
+async def _main(selected_buses: list) -> list[ArmWithGravity]:  # noqa: C901, PLR0912
     """Run gravity compensation loop for all selected buses with their positions.
 
     Returns:
