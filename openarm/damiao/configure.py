@@ -46,13 +46,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--set-master",
         type=lambda x: int(x, 0),
-        help="Set master ID to specified value (hex or decimal)",
+        help="Set master ID to specified value (e.g., 0x11, 17)",
     )
 
     parser.add_argument(
         "--set-slave",
         type=lambda x: int(x, 0),
-        help="Set slave ID to specified value (hex or decimal)",
+        help="Set slave ID to specified value (e.g., 0x01, 1)",
     )
 
     parser.add_argument(
