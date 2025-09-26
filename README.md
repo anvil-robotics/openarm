@@ -37,6 +37,43 @@ A Python package for robotic arm control and automation.
 
 OpenArm provides multiple tools for controlling and monitoring Damiao servo motors. All commands work with any CAN interface and automatically detect available motor configurations.
 
+### Motor Configuration
+
+Configure Damiao motor IDs, set zero positions, and save parameters:
+
+```bash
+# Configure motor with specific master and slave IDs
+python -m openarm.damiao.configure --channel can0 --set-master 0x11 --set-slave 0x01
+
+# Configure motor as a predefined joint (J1-J8)
+python -m openarm.damiao.configure --channel can0 --set-motor J1
+
+# Set both custom IDs and zero position, then save
+python -m openarm.damiao.configure --channel can0 --set-master 0x12 --set-slave 0x02 --set-zero --save
+
+# Configure multiple motors (requires --allow-multiple)
+python -m openarm.damiao.configure --channel can0 --set-motor J3 --allow-multiple --save
+
+# Override motor type IDs while using predefined configuration
+python -m openarm.damiao.configure --channel can0 --set-motor J1 --set-master 0x20
+```
+
+**Arguments:**
+- `--channel CHANNEL`: CAN channel (required, e.g., can0, can1)
+- `--interface INTERFACE`: CAN interface type (default: socketcan)
+- `--set-master ID`: Set master ID (hex: 0x11 or decimal: 17)
+- `--set-slave ID`: Set slave ID (hex: 0x01 or decimal: 1)
+- `--set-motor MOTOR`: Configure as predefined motor (J1-J8)
+- `--set-zero`: Set current position as zero
+- `--save`: Save parameters to motor flash memory
+- `--allow-multiple`: Allow configuring multiple motors at once
+
+**Notes:**
+- When using `--set-motor`, both master and slave IDs are set from predefined configuration
+- `--set-master` or `--set-slave` override the predefined values from `--set-motor`
+- Motors are auto-detected on the specified channel
+- The script assumes DM8009 motor type by default
+
 ### Zero Position Calibration
 
 Set all motors to zero position automatically across all detected CAN buses:
