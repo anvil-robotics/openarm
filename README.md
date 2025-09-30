@@ -37,6 +37,16 @@ A Python package for robotic arm control and automation.
 
 OpenArm provides multiple tools for controlling and monitoring Damiao servo motors. All commands work with any CAN interface and automatically detect available motor configurations.
 
+### CAN Interface Setup (Linux only)
+
+Before using any motor control commands, set up the CAN interfaces:
+
+```bash
+sudo ./scripts/setup_can.sh
+```
+
+This script configures the CAN devices with proper interface names (left_arm, right_arm) and sets the bitrate to 1 Mbps.
+
 ### Zero Position Calibration
 
 Set all motors to zero position automatically across all detected CAN buses:
