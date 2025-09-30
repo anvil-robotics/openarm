@@ -7,29 +7,29 @@ on:
 jobs:
   build-package:
     name: Build Package
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5.6.0
-        with:
-          python-version: 3.11
+      - name: Setup Virtual Environment
+        run: |
+          rm -rf .venv
+          python3 -m venv .venv
 
       - name: Install Dependencies
         run: |
-          pip install -e .
-          pip install build pytest ruff
+          .venv/bin/pip install -e .
+          .venv/bin/pip install build pytest ruff
 
       - name: Test Package
-        run: pytest
+        run: .venv/bin/pytest
 
       - name: Check Formatting
-        uses: dprint/check@v2.3
+        run: $HOME/.dprint/bin/dprint check
 
       - name: Check Lint
-        run: ruff check
+        run: .venv/bin/ruff check
 
       - name: Build Package
-        run: python -m build
+        run: .venv/bin/python -m build
