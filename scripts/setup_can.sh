@@ -4,10 +4,11 @@
 # Usage: sudo ./enable_can.sh
 #
 # Description:
-#   This script enables two CAN devices (left_arm and right_arm) with a fixed
-#   bitrate (1 Mbps) and ensures they always have consistent interface names
-#   across reboots or replugging. If no udev rule exists yet, the script will
-#   detect the device on plug-in, rename it, and append the rule to
+#   This script enables four CAN devices (leader_left, leader_right,
+#   follower_left, and follower_right) with a fixed bitrate (1 Mbps) and
+#   ensures they always have consistent interface names across reboots or
+#   replugging. If no udev rule exists yet, the script will detect the device
+#   on plug-in, rename it, and append the rule to
 #   /etc/udev/rules.d/90-can.rules.
 #
 # Requirements:
@@ -16,7 +17,7 @@
 #   - udevadm available on the system
 #
 # Behavior:
-#   1. Checks if the target CAN interface (left_arm or right_arm) already exists.
+#   1. Checks if the target CAN interface already exists.
 #   2. If not, waits for the user to plug in a CAN device and monitors udev.
 #   3. Detects the device, renames it to the expected interface name, and
 #      writes a persistent udev rule based on the device serial number.
@@ -99,9 +100,17 @@ function enable_can {
   ip link set "$1" up
 }
 
-echo "[LEFT ARM]"
-enable_can left_arm
+echo "[LEADER LEFT]"
+enable_can leader_left
 
 echo ""
-echo "[RIGHT ARM]"
-enable_can right_arm
+echo "[LEADER RIGHT]"
+enable_can leader_right
+
+echo ""
+echo "[FOLLOWER LEFT]"
+enable_can follower_left
+
+echo ""
+echo "[FOLLOWER RIGHT]"
+enable_can follower_right

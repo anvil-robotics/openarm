@@ -45,7 +45,7 @@ Before using any motor control commands, set up the CAN interfaces:
 sudo ./scripts/setup_can.sh
 ```
 
-This script configures the CAN devices with proper interface names (left_arm, right_arm) and sets the bitrate to 1 Mbps.
+This script configures the CAN devices with proper interface names (leader_left, leader_right, follower_left, follower_right) and sets the bitrate to 1 Mbps.
 
 ### Zero Position Calibration
 
