@@ -191,21 +191,24 @@ async def track_angles(
         f"\n{GREEN}Tracking angle ranges (Press 'Q' or Ctrl+C to quit){RESET}\n\n"
     )
 
-    # Print header
-    sys.stdout.write("  Motor      Current       Min         Max        Config Range        Coverage\n")
-    sys.stdout.write("  " + "-" * 82 + "\n")
-
     # Initialize table display
     num_motors = len(MOTOR_CONFIGS)
+    # +2 for header and separator line
     display = Display()
-    display.set_height(num_motors)
+    display.set_height(num_motors + 2)
 
     # Define column widths: Motor(8), Current(13), Min(13), Max(13), Config Range(21), Coverage(10)
     table = TableDisplay(display, columns_length=[8, 13, 13, 13, 21, 10])
 
-    # Set initial lines
+    # Set header row (row 0)
+    table.row(0, ["  Motor", "  Current", "  Min", "  Max", "  Config Range", "  Coverage"])
+
+    # Set separator line (row 1) using display.line directly
+    display.line(1, "-" * 78)
+
+    # Set initial data lines (starting from row 2)
     for idx, config in enumerate(MOTOR_CONFIGS):
-        table.row(idx, [f"  {config.name:<6}", "  Initializing...", "", "", "", ""])
+        table.row(idx + 2, [f"  {config.name:<6}", "  Initializing...", "", "", "", ""])
 
     # Render initial table
     display.render()
@@ -235,11 +238,12 @@ async def track_angles(
                 tracker = trackers_list[motor_idx]
 
                 motor_name = f"  {config.name:<6}"
+                row_idx = motor_idx + 2  # +2 for header and separator
 
                 if motor is None:
-                    table.row(motor_idx, [motor_name, "  N/A", "", "", "", ""])
+                    table.row(row_idx, [motor_name, "  N/A", "", "", "", ""])
                 elif tracker is None:
-                    table.row(motor_idx, [motor_name, "  No tracker", "", "", "", ""])
+                    table.row(row_idx, [motor_name, "  No tracker", "", "", "", ""])
                 else:
                     try:
                         # Refresh motor status
@@ -276,13 +280,13 @@ async def track_angles(
                                 coverage_str = "    N/A "
 
                             table.row(
-                                motor_idx,
+                                row_idx,
                                 [motor_name, current, min_val, max_val, config_range, coverage_str],
                             )
                         else:
-                            table.row(motor_idx, [motor_name, "  No state", "", "", "", ""])
+                            table.row(row_idx, [motor_name, "  No state", "", "", "", ""])
                     except Exception:  # noqa: BLE001
-                        table.row(motor_idx, [motor_name, "  Error", "", "", "", ""])
+                        table.row(row_idx, [motor_name, "  Error", "", "", "", ""])
 
             # Render updated table
             display.render()
