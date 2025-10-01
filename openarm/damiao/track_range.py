@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from math import inf, pi
 
-from openarm.utils import TableDisplay
+from openarm.utils import Display, TableDisplay
 
 # Platform-specific imports for keyboard input
 try:
@@ -197,12 +197,15 @@ async def track_angles(
 
     # Initialize table display
     num_motors = len(MOTOR_CONFIGS)
-    display = TableDisplay()
+    display = Display()
     display.set_height(num_motors)
+
+    # Define column widths: Motor(8), Current(13), Min(13), Max(13), Config Range(21), Coverage(10)
+    table = TableDisplay(display, columns_length=[8, 13, 13, 13, 21, 10])
 
     # Set initial lines
     for idx, config in enumerate(MOTOR_CONFIGS):
-        display.line(idx, f"  {config.name:<6}     Initializing...")
+        table.row(idx, [f"  {config.name:<6}", "  Initializing...", "", "", "", ""])
 
     # Render initial table
     display.render()
@@ -228,14 +231,15 @@ async def track_angles(
 
             # Update and display each motor's angles
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
-                line = f"  {config.name:<6}"
                 motor = motors_list[motor_idx]
                 tracker = trackers_list[motor_idx]
 
+                motor_name = f"  {config.name:<6}"
+
                 if motor is None:
-                    line += "       N/A                                                      "
+                    table.row(motor_idx, [motor_name, "  N/A", "", "", "", ""])
                 elif tracker is None:
-                    line += "    No tracker                                                  "
+                    table.row(motor_idx, [motor_name, "  No tracker", "", "", "", ""])
                 else:
                     try:
                         # Refresh motor status
@@ -246,18 +250,18 @@ async def track_angles(
                             tracker.update(angle_deg)
 
                             # Format display values
-                            current = f"{tracker.current_angle:+9.2f}°"
+                            current = f"  {tracker.current_angle:+9.2f}°"
                             min_val = (
-                                f"{tracker.min_angle:+9.2f}°"
+                                f"  {tracker.min_angle:+9.2f}°"
                                 if tracker.min_angle != inf
-                                else "      N/A  "
+                                else "       N/A  "
                             )
                             max_val = (
-                                f"{tracker.max_angle:+9.2f}°"
+                                f"  {tracker.max_angle:+9.2f}°"
                                 if tracker.max_angle != -inf
-                                else "      N/A  "
+                                else "       N/A  "
                             )
-                            config_range = f"[{config.min_angle:+4.0f}° to {config.max_angle:+4.0f}°]"
+                            config_range = f"  [{config.min_angle:+4.0f}° to {config.max_angle:+4.0f}°]"
 
                             # Calculate coverage percentage
                             if tracker.min_angle != inf and tracker.max_angle != -inf:
@@ -265,22 +269,20 @@ async def track_angles(
                                 config_span = config.max_angle - config.min_angle
                                 if config_span > 0:
                                     coverage = (observed_span / config_span) * 100
-                                    coverage_str = f"{coverage:6.1f}%"
+                                    coverage_str = f"  {coverage:6.1f}%"
                                 else:
-                                    coverage_str = "   N/A "
+                                    coverage_str = "    N/A "
                             else:
-                                coverage_str = "   N/A "
+                                coverage_str = "    N/A "
 
-                            line += (
-                                f"  {current:>11}  {min_val:>11}  "
-                                f"{max_val:>11}  {config_range:>20}  {coverage_str:>9}"
+                            table.row(
+                                motor_idx,
+                                [motor_name, current, min_val, max_val, config_range, coverage_str],
                             )
                         else:
-                            line += "  No state                                                "
+                            table.row(motor_idx, [motor_name, "  No state", "", "", "", ""])
                     except Exception:  # noqa: BLE001
-                        line += "  Error reading                                               "
-
-                display.line(motor_idx, line)
+                        table.row(motor_idx, [motor_name, "  Error", "", "", "", ""])
 
             # Render updated table
             display.render()

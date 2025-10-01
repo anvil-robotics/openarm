@@ -1,5 +1,5 @@
 """Utility modules for OpenArm."""
 
-from .display import TableDisplay
+from .display import Display, TableDisplay
 
-__all__ = ["TableDisplay"]
+__all__ = ["Display", "TableDisplay"]
