@@ -13,7 +13,7 @@ class MotorConfig:
     slave_id: int  # Target slave ID
     master_id: int  # Target master ID
     type: MotorType
-    inverted: bool = False  # Whether to negate position in mirror mode
+    inverted: bool  # Whether to negate position in mirror mode
     min_angle: float  # Minimum angle in degrees
     max_angle: float  # Maximum angle in degrees
 
