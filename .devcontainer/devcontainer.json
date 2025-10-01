@@ -1,0 +1,25 @@
+{
+  "name": "openarm-python-3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "networkMode": "host",
+  "runArgs": [
+    "--network=host",
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+    "--group-add=dialout"
+  ],
+ 
+  "postCreateCommand": "sudo usermod -aG dialout vscode && sudo apt-get update && sudo apt-get install -y python3-pip && pip3 install --no-cache-dir --user -e /workspaces/openarm",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/openarm/.venv/bin/python"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "openai.chatgpt"
+      ]
+    }
+  }
+}
