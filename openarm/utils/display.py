@@ -81,31 +81,40 @@ class Display:
 
 
 class TableDisplay:
-    """Table display with automatic column formatting and truncation.
+    """Table display with automatic column formatting, padding, and alignment.
 
     This class wraps a Display instance and provides table-like formatting with
     defined column widths. Cells are automatically truncated if they exceed the
-    specified column width.
+    specified column width, and padded to fill the column width based on alignment.
 
     Example:
         display = Display()
         display.set_height(3)
-        table = TableDisplay(display, columns_length=[10, 20, 15])
+        table = TableDisplay(
+            display,
+            columns_length=[10, 20, 15],
+            align=["left", "left", "right"]
+        )
         table.row(0, ["Name", "Description", "Value"])
         table.row(1, ["Item1", "A very long description that will be cut", "123"])
         table.row(2, ["Item2", "Short", "456"])
         display.render()
     """
 
-    def __init__(self, display: Display, columns_length: list[int]) -> None:
+    def __init__(
+        self, display: Display, columns_length: list[int], align: list[str] | None = None
+    ) -> None:
         """Initialize table display.
 
         Args:
             display: Display instance to render to.
             columns_length: List of column widths (in characters).
+            align: List of alignment for each column ("left", "right", "center").
+                   Defaults to "left" for all columns.
         """
         self._display = display
         self._columns_length = columns_length
+        self._align = align or ["left"] * len(columns_length)
 
     def row(self, n: int, cells: list[str]) -> None:
         """Set content for row n with automatic column formatting.
@@ -114,16 +123,28 @@ class TableDisplay:
             n: Row number (0-indexed).
             cells: List of cell contents (one per column).
         """
-        # Format each cell according to column width
+        # Format each cell according to column width and alignment
         formatted_cells = []
         for i, cell in enumerate(cells):
             if i < len(self._columns_length):
                 col_width = self._columns_length[i]
+                alignment = self._align[i] if i < len(self._align) else "left"
+
                 # Truncate if cell exceeds column width
                 if len(cell) > col_width:
-                    formatted_cell = cell[:col_width]
+                    cell = cell[:col_width]
+
+                # Pad cell to column width based on alignment
+                if alignment == "left":
+                    formatted_cell = cell.ljust(col_width)
+                elif alignment == "right":
+                    formatted_cell = cell.rjust(col_width)
+                elif alignment == "center":
+                    formatted_cell = cell.center(col_width)
                 else:
-                    formatted_cell = cell
+                    # Default to left if unknown alignment
+                    formatted_cell = cell.ljust(col_width)
+
                 formatted_cells.append(formatted_cell)
             else:
                 # No width defined for this column, use as-is
