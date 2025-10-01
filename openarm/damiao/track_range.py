@@ -190,9 +190,8 @@ async def track_angles(
     )
 
     # Print header
-    header = "  Motor        Current      Min         Max       Config Range       Coverage"
-    sys.stdout.write(header + "\n")
-    sys.stdout.write("  " + "-" * (len(header) - 2) + "\n")
+    sys.stdout.write("  Motor      Current       Min         Max        Config Range        Coverage\n")
+    sys.stdout.write("  " + "-" * 82 + "\n")
 
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
@@ -224,7 +223,7 @@ async def track_angles(
 
             # Update and display each motor's angles
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
-                line = f"\r  {config.name:<8}"
+                line = f"\r  {config.name:<6}"
                 motor = motors_list[motor_idx]
                 tracker = trackers_list[motor_idx]
 
@@ -242,20 +241,18 @@ async def track_angles(
                             tracker.update(angle_deg)
 
                             # Format display values
-                            current = f"{tracker.current_angle:+8.2f}°"
+                            current = f"{tracker.current_angle:+9.2f}°"
                             min_val = (
-                                f"{tracker.min_angle:+8.2f}°"
+                                f"{tracker.min_angle:+9.2f}°"
                                 if tracker.min_angle != inf
-                                else "     N/A  "
+                                else "      N/A  "
                             )
                             max_val = (
-                                f"{tracker.max_angle:+8.2f}°"
+                                f"{tracker.max_angle:+9.2f}°"
                                 if tracker.max_angle != -inf
-                                else "     N/A  "
+                                else "      N/A  "
                             )
-                            config_range = (
-                                f"[{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]"
-                            )
+                            config_range = f"[{config.min_angle:+4.0f}° to {config.max_angle:+4.0f}°]"
 
                             # Calculate coverage percentage
                             if tracker.min_angle != inf and tracker.max_angle != -inf:
@@ -270,8 +267,8 @@ async def track_angles(
                                 coverage_str = "   N/A "
 
                             line += (
-                                f"  {current}  {min_val}  "
-                                f"{max_val}  {config_range}  {coverage_str}"
+                                f"  {current:>11}  {min_val:>11}  "
+                                f"{max_val:>11}  {config_range:>20}  {coverage_str:>9}"
                             )
                         else:
                             line += "  No state                                                "
@@ -309,14 +306,15 @@ async def track_angles(
                     range_span = tracker.max_angle - tracker.min_angle
                     config_span = config.max_angle - config.min_angle
                     coverage = (range_span / config_span * 100) if config_span > 0 else 0
+                    config_range = f"[{config.min_angle:+4.0f}° to {config.max_angle:+4.0f}°]"
                     sys.stdout.write(
-                        f"  {config.name:<8}: {tracker.min_angle:+8.2f}° to "
-                        f"{tracker.max_angle:+8.2f}°  (span: {range_span:7.2f}°)  "
-                        f"Config: [{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]  "
+                        f"  {config.name:<6}: {tracker.min_angle:+9.2f}° to "
+                        f"{tracker.max_angle:+9.2f}°  (span: {range_span:7.2f}°)  "
+                        f"Config: {config_range:>20}  "
                         f"Coverage: {coverage:5.1f}%\n"
                     )
                 else:
-                    sys.stdout.write(f"  {config.name:<8}: No data collected\n")
+                    sys.stdout.write(f"  {config.name:<6}: No data collected\n")
 
         sys.stdout.write("\nAngle tracking stopped.\n")
 
