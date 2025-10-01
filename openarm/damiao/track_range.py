@@ -292,30 +292,6 @@ async def track_angles(
 
         # Move cursor below all motor lines
         sys.stdout.write(f"\033[{num_motors}B\n")
-        sys.stdout.write("\n" + "=" * 70 + "\n")
-        sys.stdout.write(f"{GREEN}Final Angle Ranges:{RESET}\n")
-        sys.stdout.write("=" * 70 + "\n\n")
-
-        # Print summary
-        for motor_idx, config in enumerate(MOTOR_CONFIGS):
-            motor = motors_list[motor_idx]
-            tracker = trackers_list[motor_idx]
-
-            if motor and tracker:
-                if tracker.min_angle != inf and tracker.max_angle != -inf:
-                    range_span = tracker.max_angle - tracker.min_angle
-                    config_span = config.max_angle - config.min_angle
-                    coverage = (range_span / config_span * 100) if config_span > 0 else 0
-                    config_range = f"[{config.min_angle:+4.0f}° to {config.max_angle:+4.0f}°]"
-                    sys.stdout.write(
-                        f"  {config.name:<6}: {tracker.min_angle:+9.2f}° to "
-                        f"{tracker.max_angle:+9.2f}°  (span: {range_span:7.2f}°)  "
-                        f"Config: {config_range:>20}  "
-                        f"Coverage: {coverage:5.1f}%\n"
-                    )
-                else:
-                    sys.stdout.write(f"  {config.name:<6}: No data collected\n")
-
         sys.stdout.write("\nAngle tracking stopped.\n")
 
 
