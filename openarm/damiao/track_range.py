@@ -4,9 +4,10 @@ This script disables all Damiao motors and continuously displays their current a
 along with the minimum and maximum angles observed during the session.
 """
 
+import argparse
 import asyncio
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import inf, pi
 
 # Platform-specific imports for keyboard input
@@ -73,107 +74,83 @@ class AngleTracker:
         self.max_angle = -inf
 
 
-@dataclass
-class BusMotors:
-    """Motors and tracking data for a single CAN bus."""
-
-    bus_idx: int
-    can_bus: can.BusABC
-    motors: list[Motor | None] = field(default_factory=list)
-    trackers: list[AngleTracker | None] = field(default_factory=list)
 
 
-async def main() -> None:
+async def main(args: argparse.Namespace) -> None:
     """Run the angle range tracker."""
-    # Create CAN buses
+    # Create single CAN bus from arguments
     try:
-        can_buses = [
-            can.Bus(channel=config["channel"], interface=config["interface"])
-            for config in can.detect_available_configs("socketcan")
-        ]
-    except Exception:  # noqa: BLE001
-        can_buses = []
-
-    if not can_buses:
-        sys.stderr.write(f"{RED}Error: No CAN buses detected.{RESET}\n")
+        can_bus = can.Bus(channel=args.channel, interface=args.interface)
+    except Exception as e:
+        sys.stderr.write(f"{RED}Error: Failed to create CAN bus: {e}{RESET}\n")
         return None
 
-    sys.stdout.write(f"\n{GREEN}Detected {len(can_buses)} CAN bus(es){RESET}\n")
+    sys.stdout.write(
+        f"\n{GREEN}Connected to {args.channel} (interface: {args.interface}){RESET}\n"
+    )
 
     try:
-        return await _main(can_buses)
+        return await _main(can_bus)
     finally:
-        for bus in can_buses:
-            bus.shutdown()
+        can_bus.shutdown()
 
 
-async def _main(can_buses: list[can.BusABC]) -> None:  # noqa: C901
-    """Process motors on all buses and track angle ranges."""
-    # Detect motors on each bus
-    all_bus_motors: list[BusMotors] = []
+async def _main(can_bus: can.BusABC) -> None:  # noqa: C901
+    """Process motors on the bus and track angle ranges."""
+    # Detect motors on the bus
+    sys.stdout.write(f"\n{CYAN}Scanning for motors...{RESET}\n")
+    slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
+
+    # Detect motors using raw CAN bus
+    detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
+
+    sys.stdout.write(f"\nMotor Status:\n")
+
+    # Create lookup for detected motors by slave ID
+    detected_lookup = {info.slave_id: info for info in detected}
+
+    # Check all expected motors and their status
+    motors_list = []
+    trackers_list = []
     has_missing_motor = False
 
-    for bus_idx, can_bus in enumerate(can_buses):
-        sys.stdout.write(f"\n{CYAN}Scanning for motors on bus {bus_idx + 1}...{RESET}\n")
-        slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
-
-        # Detect motors using raw CAN bus
-        detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
-
-        sys.stdout.write(f"\nBus {bus_idx + 1} Motor Status:\n")
-
-        # Create lookup for detected motors by slave ID
-        detected_lookup = {info.slave_id: info for info in detected}
-
-        # Check all expected motors and their status
-        bus_motors_list = []
-        trackers_list = []
-
-        for config in MOTOR_CONFIGS:
-            if config.slave_id not in detected_lookup:
-                # Motor is not detected
-                sys.stderr.write(
-                    f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
-                    f"(Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}\n"
-                )
-                bus_motors_list.append(None)
-                trackers_list.append(None)
-                has_missing_motor = True
-            elif detected_lookup[config.slave_id].master_id != config.master_id:
-                # Motor is detected but master ID doesn't match
-                detected_info = detected_lookup[config.slave_id]
-                sys.stderr.write(
-                    f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
-                    f"{RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, "
-                    f"Got 0x{detected_info.master_id:02X}]{RESET}\n"
-                )
-                bus_motors_list.append(None)
-                trackers_list.append(None)
-                has_missing_motor = True
-            else:
-                # Motor is connected and configured correctly
-                sys.stdout.write(
-                    f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} "
-                    f"(Master: 0x{config.master_id:02X})\n"
-                )
-                # Create motor instance
-                bus = Bus(can_bus)
-                motor = Motor(
-                    bus,
-                    slave_id=config.slave_id,
-                    master_id=config.master_id,
-                    motor_type=config.type,
-                )
-                bus_motors_list.append(motor)
-                trackers_list.append(AngleTracker())
-
-        bus_motors = BusMotors(
-            bus_idx=bus_idx,
-            can_bus=can_bus,
-            motors=bus_motors_list,
-            trackers=trackers_list,
-        )
-        all_bus_motors.append(bus_motors)
+    for config in MOTOR_CONFIGS:
+        if config.slave_id not in detected_lookup:
+            # Motor is not detected
+            sys.stderr.write(
+                f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
+                f"(Master: 0x{config.master_id:02X}) {RED}[NOT DETECTED]{RESET}\n"
+            )
+            motors_list.append(None)
+            trackers_list.append(None)
+            has_missing_motor = True
+        elif detected_lookup[config.slave_id].master_id != config.master_id:
+            # Motor is detected but master ID doesn't match
+            detected_info = detected_lookup[config.slave_id]
+            sys.stderr.write(
+                f"  {RED}✗{RESET} {config.name}: ID 0x{config.slave_id:02X} "
+                f"{RED}[MASTER ID MISMATCH: Expected 0x{config.master_id:02X}, "
+                f"Got 0x{detected_info.master_id:02X}]{RESET}\n"
+            )
+            motors_list.append(None)
+            trackers_list.append(None)
+            has_missing_motor = True
+        else:
+            # Motor is connected and configured correctly
+            sys.stdout.write(
+                f"  {GREEN}✓{RESET} {config.name}: ID 0x{config.slave_id:02X} "
+                f"(Master: 0x{config.master_id:02X})\n"
+            )
+            # Create motor instance
+            bus = Bus(can_bus)
+            motor = Motor(
+                bus,
+                slave_id=config.slave_id,
+                master_id=config.master_id,
+                motor_type=config.type,
+            )
+            motors_list.append(motor)
+            trackers_list.append(AngleTracker())
 
     # Exit if any motor is missing
     if has_missing_motor:
@@ -184,53 +161,42 @@ async def _main(can_buses: list[can.BusABC]) -> None:  # noqa: C901
         return
 
     # Count total detected motors
-    total_motors = sum(
-        1 for bm in all_bus_motors for m in bm.motors if m is not None
-    )
+    total_motors = sum(1 for m in motors_list if m is not None)
     if total_motors == 0:
-        sys.stderr.write(f"\n{RED}Error: No motors detected on any bus.{RESET}\n")
+        sys.stderr.write(f"\n{RED}Error: No motors detected.{RESET}\n")
         return
 
-    sys.stdout.write(
-        f"\n{GREEN}Total {total_motors} motors detected across "
-        f"{len(can_buses)} bus(es){RESET}\n"
-    )
+    sys.stdout.write(f"\n{GREEN}Total {total_motors} motors detected{RESET}\n")
 
     # Disable all motors
     sys.stdout.write("\nDisabling all motors...\n")
-    for bus_motors in all_bus_motors:
-        for motor in bus_motors.motors:
-            if motor:
-                try:
-                    await motor.disable()
-                except Exception as e:  # noqa: BLE001
-                    sys.stderr.write(
-                        f"{RED}Error disabling motor on bus "
-                        f"{bus_motors.bus_idx + 1}: {e}{RESET}\n"
-                    )
+    for motor in motors_list:
+        if motor:
+            try:
+                await motor.disable()
+            except Exception as e:  # noqa: BLE001
+                sys.stderr.write(f"{RED}Error disabling motor: {e}{RESET}\n")
 
     # Start angle tracking
-    await track_angles(all_bus_motors)
+    await track_angles(motors_list, trackers_list)
 
 
-async def track_angles(all_bus_motors: list[BusMotors]) -> None:  # noqa: C901
+async def track_angles(
+    motors_list: list[Motor | None], trackers_list: list[AngleTracker | None]
+) -> None:  # noqa: C901
     """Track angle ranges for all motors continuously."""
     sys.stdout.write(
         f"\n{GREEN}Tracking angle ranges (Press 'Q' or Ctrl+C to quit){RESET}\n\n"
     )
 
     # Print header
-    header = "  Motor        Bus"
-    header += "     Current      Min         Max       Config Range       Coverage"
+    header = "  Motor        Current      Min         Max       Config Range       Coverage"
     sys.stdout.write(header + "\n")
     sys.stdout.write("  " + "-" * (len(header) - 2) + "\n")
 
     # Print initial lines for each motor
     for config in MOTOR_CONFIGS:
-        line = f"  {config.name:<8}"
-        for _ in all_bus_motors:
-            line += "     Initializing..."
-        sys.stdout.write(line + "\n")
+        sys.stdout.write(f"  {config.name:<8}     Initializing...\n")
 
     num_motors = len(MOTOR_CONFIGS)
 
@@ -259,60 +225,58 @@ async def track_angles(all_bus_motors: list[BusMotors]) -> None:  # noqa: C901
             # Update and display each motor's angles
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
                 line = f"\r  {config.name:<8}"
+                motor = motors_list[motor_idx]
+                tracker = trackers_list[motor_idx]
 
-                for bus_idx, bus_motors in enumerate(all_bus_motors):
-                    motor = bus_motors.motors[motor_idx]
-                    tracker = bus_motors.trackers[motor_idx]
+                if motor is None:
+                    line += "       N/A                                                      "
+                elif tracker is None:
+                    line += "    No tracker                                                  "
+                else:
+                    try:
+                        # Refresh motor status
+                        state = await motor.refresh_status()
+                        if state:
+                            # Update tracker with current angle in degrees
+                            angle_deg = state.position * 180 / pi
+                            tracker.update(angle_deg)
 
-                    if motor is None:
-                        line += f"  {bus_idx + 1}       N/A                             "
-                    elif tracker is None:
-                        line += f"  {bus_idx + 1}    No tracker                       "
-                    else:
-                        try:
-                            # Refresh motor status
-                            state = await motor.refresh_status()
-                            if state:
-                                # Update tracker with current angle in degrees
-                                angle_deg = state.position * 180 / pi
-                                tracker.update(angle_deg)
+                            # Format display values
+                            current = f"{tracker.current_angle:+8.2f}°"
+                            min_val = (
+                                f"{tracker.min_angle:+8.2f}°"
+                                if tracker.min_angle != inf
+                                else "     N/A  "
+                            )
+                            max_val = (
+                                f"{tracker.max_angle:+8.2f}°"
+                                if tracker.max_angle != -inf
+                                else "     N/A  "
+                            )
+                            config_range = (
+                                f"[{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]"
+                            )
 
-                                # Format display values
-                                current = f"{tracker.current_angle:+8.2f}°"
-                                min_val = (
-                                    f"{tracker.min_angle:+8.2f}°"
-                                    if tracker.min_angle != inf
-                                    else "     N/A  "
-                                )
-                                max_val = (
-                                    f"{tracker.max_angle:+8.2f}°"
-                                    if tracker.max_angle != -inf
-                                    else "     N/A  "
-                                )
-                                config_range = (
-                                    f"[{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]"
-                                )
-
-                                # Calculate coverage percentage
-                                if tracker.min_angle != inf and tracker.max_angle != -inf:
-                                    observed_span = tracker.max_angle - tracker.min_angle
-                                    config_span = config.max_angle - config.min_angle
-                                    if config_span > 0:
-                                        coverage = (observed_span / config_span) * 100
-                                        coverage_str = f"{coverage:6.1f}%"
-                                    else:
-                                        coverage_str = "   N/A "
+                            # Calculate coverage percentage
+                            if tracker.min_angle != inf and tracker.max_angle != -inf:
+                                observed_span = tracker.max_angle - tracker.min_angle
+                                config_span = config.max_angle - config.min_angle
+                                if config_span > 0:
+                                    coverage = (observed_span / config_span) * 100
+                                    coverage_str = f"{coverage:6.1f}%"
                                 else:
                                     coverage_str = "   N/A "
-
-                                line += (
-                                    f"  {bus_idx + 1}  {current}  {min_val}  "
-                                    f"{max_val}  {config_range}  {coverage_str}"
-                                )
                             else:
-                                line += f"  {bus_idx + 1}  No state                         "
-                        except Exception:  # noqa: BLE001
-                            line += f"  {bus_idx + 1}  Error reading                    "
+                                coverage_str = "   N/A "
+
+                            line += (
+                                f"  {current}  {min_val}  "
+                                f"{max_val}  {config_range}  {coverage_str}"
+                            )
+                        else:
+                            line += "  No state                                                "
+                    except Exception:  # noqa: BLE001
+                        line += "  Error reading                                               "
 
                 sys.stdout.write(line + "\033[K\n")
 
@@ -335,35 +299,56 @@ async def track_angles(all_bus_motors: list[BusMotors]) -> None:  # noqa: C901
         sys.stdout.write(f"{GREEN}Final Angle Ranges:{RESET}\n")
         sys.stdout.write("=" * 70 + "\n\n")
 
-        # Print summary for each bus
-        for bus_motors in all_bus_motors:
-            sys.stdout.write(f"{CYAN}Bus {bus_motors.bus_idx + 1}:{RESET}\n")
-            for motor_idx, config in enumerate(MOTOR_CONFIGS):
-                motor = bus_motors.motors[motor_idx]
-                tracker = bus_motors.trackers[motor_idx]
+        # Print summary
+        for motor_idx, config in enumerate(MOTOR_CONFIGS):
+            motor = motors_list[motor_idx]
+            tracker = trackers_list[motor_idx]
 
-                if motor and tracker:
-                    if tracker.min_angle != inf and tracker.max_angle != -inf:
-                        range_span = tracker.max_angle - tracker.min_angle
-                        config_span = config.max_angle - config.min_angle
-                        coverage = (range_span / config_span * 100) if config_span > 0 else 0
-                        sys.stdout.write(
-                            f"  {config.name:<8}: {tracker.min_angle:+8.2f}° to "
-                            f"{tracker.max_angle:+8.2f}°  (span: {range_span:7.2f}°)  "
-                            f"Config: [{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]  "
-                            f"Coverage: {coverage:5.1f}%\n"
-                        )
-                    else:
-                        sys.stdout.write(f"  {config.name:<8}: No data collected\n")
-            sys.stdout.write("\n")
+            if motor and tracker:
+                if tracker.min_angle != inf and tracker.max_angle != -inf:
+                    range_span = tracker.max_angle - tracker.min_angle
+                    config_span = config.max_angle - config.min_angle
+                    coverage = (range_span / config_span * 100) if config_span > 0 else 0
+                    sys.stdout.write(
+                        f"  {config.name:<8}: {tracker.min_angle:+8.2f}° to "
+                        f"{tracker.max_angle:+8.2f}°  (span: {range_span:7.2f}°)  "
+                        f"Config: [{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]  "
+                        f"Coverage: {coverage:5.1f}%\n"
+                    )
+                else:
+                    sys.stdout.write(f"  {config.name:<8}: No data collected\n")
 
-        sys.stdout.write("Angle tracking stopped.\n")
+        sys.stdout.write("\nAngle tracking stopped.\n")
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Track min/max angle ranges for Damiao motors"
+    )
+
+    parser.add_argument(
+        "--channel",
+        "-c",
+        required=True,
+        help="CAN channel name (e.g., can0, can1)",
+    )
+
+    parser.add_argument(
+        "--interface",
+        "-i",
+        default="socketcan",
+        help="CAN interface type (default: socketcan)",
+    )
+
+    return parser.parse_args()
 
 
 def run() -> None:
     """Entry point for the track_range script."""
+    args = parse_arguments()
     try:
-        asyncio.run(main())
+        asyncio.run(main(args))
     except KeyboardInterrupt:
         sys.stderr.write("\nInterrupted by user.\n")
         sys.exit(0)
