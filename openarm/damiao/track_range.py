@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 from math import inf, pi
 
+from openarm.utils import TableDisplay
+
 # Platform-specific imports for keyboard input
 try:
     import select
@@ -193,11 +195,17 @@ async def track_angles(
     sys.stdout.write("  Motor      Current       Min         Max        Config Range        Coverage\n")
     sys.stdout.write("  " + "-" * 82 + "\n")
 
-    # Print initial lines for each motor
-    for config in MOTOR_CONFIGS:
-        sys.stdout.write(f"  {config.name:<8}     Initializing...\n")
-
+    # Initialize table display
     num_motors = len(MOTOR_CONFIGS)
+    display = TableDisplay()
+    display.set_height(num_motors)
+
+    # Set initial lines
+    for idx, config in enumerate(MOTOR_CONFIGS):
+        display.line(idx, f"  {config.name:<6}     Initializing...")
+
+    # Render initial table
+    display.render()
 
     # Set terminal to raw mode for keyboard detection
     old_settings = None
@@ -218,12 +226,9 @@ async def track_angles(
                 if key == "q":
                     break
 
-            # Move cursor up to the first motor line
-            sys.stdout.write(f"\033[{num_motors}A")
-
             # Update and display each motor's angles
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
-                line = f"\r  {config.name:<6}"
+                line = f"  {config.name:<6}"
                 motor = motors_list[motor_idx]
                 tracker = trackers_list[motor_idx]
 
@@ -275,7 +280,10 @@ async def track_angles(
                     except Exception:  # noqa: BLE001
                         line += "  Error reading                                               "
 
-                sys.stdout.write(line + "\033[K\n")
+                display.line(motor_idx, line)
+
+            # Render updated table
+            display.render()
 
             # Small delay before refresh
             await asyncio.sleep(0.1)
@@ -290,8 +298,6 @@ async def track_angles(
             except (OSError, termios.error):
                 pass
 
-        # Move cursor below all motor lines
-        sys.stdout.write(f"\033[{num_motors}B\n")
         sys.stdout.write("\nAngle tracking stopped.\n")
 
 
