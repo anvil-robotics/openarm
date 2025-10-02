@@ -39,13 +39,13 @@ OpenArm provides multiple tools for controlling and monitoring Damiao servo moto
 
 ### CAN Interface Setup (Linux only)
 
-Before using any motor control commands, set up the CAN interfaces:
+Before using any motor control commands, you need to set up the CAN interfaces:
 
 ```bash
 sudo ./scripts/setup_can.sh
 ```
 
-This script configures the CAN devices with proper interface names (leader_left, leader_right, follower_left, follower_right) and sets the bitrate to 1 Mbps.
+This script configures the CAN devices with the proper interface names (`leader_left`, `leader_right`, `follower_left`, `follower_right`) and sets the bitrate to 1 Mbps. You only need to run this script once—afterwards, whenever the CAN devices are replugged or the computer is restarted, they will be set up automatically.
 
 ### Zero Position Calibration
 
