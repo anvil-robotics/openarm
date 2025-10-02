@@ -33,7 +33,7 @@ import can
 
 from openarm.bus import Bus
 
-from . import Motor
+from . import ControlMode, MitControlParams, Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 
@@ -170,14 +170,18 @@ async def _main(can_bus: can.BusABC) -> None:  # noqa: C901
 
     sys.stdout.write(f"\n{GREEN}Total {total_motors} motors detected{RESET}\n")
 
-    # Disable all motors
-    sys.stdout.write("\nDisabling all motors...\n")
+    # Enable motors with MIT control mode (zero torque for passive tracking)
+    sys.stdout.write("\nEnabling motors with MIT control (zero torque)...\n")
     for motor in motors_list:
         if motor:
             try:
-                await motor.disable()
+                await motor.enable()
+                await motor.set_control_mode(ControlMode.MIT)
+                # Send zero torque command (passive mode)
+                params = MitControlParams(q=0, dq=0, kp=0, kd=0, tau=0)
+                await motor.control_mit(params)
             except Exception as e:  # noqa: BLE001
-                sys.stderr.write(f"{RED}Error disabling motor: {e}{RESET}\n")
+                sys.stderr.write(f"{RED}Error enabling motor: {e}{RESET}\n")
 
     # Start angle tracking
     await track_angles(motors_list, trackers_list)
@@ -308,7 +312,16 @@ async def track_angles(
             except (OSError, termios.error):
                 pass
 
-        sys.stdout.write("\nAngle tracking stopped.\n")
+        # Disable all motors for safety
+        sys.stdout.write("\nDisabling all motors...\n")
+        for motor in motors_list:
+            if motor:
+                try:
+                    await motor.disable()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        sys.stdout.write("Angle tracking stopped.\n")
 
 
 def parse_arguments() -> argparse.Namespace:
