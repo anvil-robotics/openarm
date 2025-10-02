@@ -74,6 +74,17 @@ python -m openarm.damiao.configure --channel can0 --set-motor J1 --set-master 0x
 - Motors are auto-detected on the specified channel
 - The script assumes DM8009 motor type by default
 
+
+### CAN Interface Setup (Linux only)
+
+Before using any motor control commands, set up the CAN interfaces:
+
+```bash
+sudo ./scripts/setup_can.sh
+```
+
+This script configures the CAN devices with proper interface names (leader_left, leader_right, follower_left, follower_right) and sets the bitrate to 1 Mbps.
+
 ### Zero Position Calibration
 
 Set all motors to zero position automatically across all detected CAN buses:
