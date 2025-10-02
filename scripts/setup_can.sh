@@ -1,15 +1,19 @@
 #!/bin/bash
 
 # =============================================================================
-# Usage: sudo ./setup_can.sh
+# Usage: sudo ./setup_can.sh [interface_name1] [interface_name2] ...
+#        sudo ./setup_can.sh --help
 #
 # Description:
-#   This script configures four CAN devices (leader_left, leader_right,
-#   follower_left, and follower_right) using systemd-networkd with a fixed
+#   This script configures CAN devices using systemd-networkd with a fixed
 #   bitrate (1 Mbps) and ensures they always have consistent interface names
-#   across reboots or replugging. If no udev rule exists yet, the script will
-#   detect the device on plug-in, rename it, and append the rule to
-#   /etc/udev/rules.d/90-can.rules.
+#   across reboots or replugging. Interface names are provided as arguments.
+#   If no udev rule exists yet, the script will detect the device on plug-in,
+#   rename it, and append the rule to /etc/udev/rules.d/90-can.rules.
+#
+# Arguments:
+#   interface_name1, interface_name2, ... : Names for CAN interfaces to set up
+#   --help                                : Show usage information
 #
 # Requirements:
 #   - Must be run as root
@@ -28,9 +32,47 @@
 # Notes:
 #   - Once rules are written, future runs won’t prompt for plugging in devices.
 #   - To reset, remove /etc/udev/rules.d/90-can.rules and systemd network files.
+#
+# Examples:
+#   sudo ./setup_can.sh left_arm right_arm
 # =============================================================================
 
 set -e
+
+function show_help() {
+  cat << EOF
+Usage: sudo $0 [interface_name1] [interface_name2] ...
+       sudo $0 --help
+
+Description:
+  This script configures CAN devices using systemd-networkd with a fixed
+  bitrate (1 Mbps) and ensures they always have consistent interface names
+  across reboots or replugging.
+
+Arguments:
+  interface_name1, interface_name2, ... : Names for CAN interfaces to set up
+  --help                               : Show this help message
+
+Examples:
+  sudo $0 left_arm right_arm
+
+Requirements:
+  - Must be run as root
+  - systemd-networkd service
+  - udevadm available on the system
+
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 1
+fi
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  show_help
+  exit 0
+fi
 
 if [[ $EUID -ne 0 ]]; then
   echo "This script must be run as root" >&2
@@ -108,17 +150,8 @@ EOF
   systemctl restart systemd-networkd
 }
 
-echo "[LEADER LEFT]"
-setup_can leader_left
-
-echo ""
-echo "[LEADER RIGHT]"
-setup_can leader_right
-
-echo ""
-echo "[FOLLOWER LEFT]"
-setup_can follower_left
-
-echo ""
-echo "[FOLLOWER RIGHT]"
-setup_can follower_right
+for interface_name in "$@"; do
+  echo "[${interface_name^^}]"
+  setup_can "$interface_name"
+  echo ""
+done
