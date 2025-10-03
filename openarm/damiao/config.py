@@ -35,7 +35,7 @@ MOTOR_CONFIGS: list[MotorConfig] = [
         master_id=0x12,
         type=MotorType.DM8009,
         inverted=True,
-        min_angle=-170.0,
+        min_angle=-190.0,
         max_angle=10.0,
     ),
     MotorConfig(
