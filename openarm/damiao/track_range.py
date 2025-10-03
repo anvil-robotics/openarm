@@ -33,9 +33,10 @@ import can
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
+from .encoding import ControlMode, MitControlParams, PosVelControlParams
+from .motor import Motor
 
 # ANSI color codes for terminal output
 RED = "\033[91m"
@@ -75,6 +76,85 @@ class AngleTracker:
         self.min_angle = inf
         self.max_angle = -inf
 
+
+def target_angle(
+    config: tuple[float, float], tracker: tuple[float, float], angle: float = 0
+) -> float:
+    """Calculate target position to map a desired angle based on tracked range.
+
+    Args:
+        config: (min_angle, max_angle) from motor config
+        tracker: (min_angle, max_angle) from observed tracking
+        angle: Desired angle in config space to map (default: 0)
+
+    Returns:
+        Target position in degrees in tracker space
+    """
+    config_min, config_max = config
+    tracker_min, tracker_max = tracker
+
+    observed_span = tracker_max - tracker_min
+    config_span = config_max - config_min
+
+    if config_span == 0:
+        msg = "Config range span is zero"
+        raise ValueError(msg)
+
+    # Map desired angle from config space to tracker space
+    # Formula: pos = tracker.min + (tracker.max - tracker.min) * (angle - config.min) / (config.max - config.min)
+    target_pos_deg = tracker_min + observed_span * (angle - config_min) / config_span
+    return target_pos_deg
+
+
+async def set_zero(
+    motors_list: list[Motor | None],
+    trackers_list: list[AngleTracker | None],
+) -> None:
+    """Set zero position for all motors based on tracked ranges."""
+    sys.stdout.write(f"\n{CYAN}Setting zero position for all motors...{RESET}\n")
+
+    for motor, tracker, config in zip(motors_list, trackers_list, MOTOR_CONFIGS, strict=False):
+        if motor is None or tracker is None:
+            continue
+
+        if tracker.min_angle == inf or tracker.max_angle == -inf:
+            sys.stdout.write(
+                f"  {YELLOW}✗{RESET} {config.name}: No data collected, skipping\n"
+            )
+            continue
+
+        try:
+            # Calculate target position where zero should be set
+            target_pos_deg = target_angle(
+                config=(config.min_angle, config.max_angle),
+                tracker=(tracker.min_angle, tracker.max_angle),
+                angle=0,
+            )
+            target_pos_rad = target_pos_deg * pi / 180
+
+            # Set to PosVel control mode
+            await motor.set_control_mode(ControlMode.POS_VEL)
+
+            # Move to calculated position
+            params = PosVelControlParams(position=target_pos_rad, velocity=1.0)
+            await motor.control_pos_vel(params)
+
+            # Small delay to reach position
+            await asyncio.sleep(2)
+
+            # Disable motor (required for set_zero_position)
+            await motor.disable()
+
+            # Set zero position and save
+            await motor.set_zero_position()
+            await motor.save_parameters()
+
+            sys.stdout.write(f"  {GREEN}✓{RESET} {config.name}: Zero set\n")
+
+        except Exception as e:  # noqa: BLE001
+            sys.stdout.write(f"  {RED}✗{RESET} {config.name}: Error - {e}\n")
+
+    sys.stdout.write(f"\n{GREEN}Zero position setting complete!{RESET}\n")
 
 
 
@@ -192,7 +272,7 @@ async def track_angles(
 ) -> None:  # noqa: C901
     """Track angle ranges for all motors continuously."""
     sys.stdout.write(
-        f"\n{GREEN}Tracking angle ranges (Press 'Q' or Ctrl+C to quit){RESET}\n\n"
+        f"\n{GREEN}Tracking angle ranges (Press 'S' to set zero and exit, 'Q' to quit){RESET}\n\n"
     )
 
     # Initialize table display
@@ -201,23 +281,23 @@ async def track_angles(
     display = Display()
     display.set_height(num_motors + 2)
 
-    # Define column widths: Motor(10), Current(12), Min(12), Max(12), Config Range(20), Coverage(12)
-    # Alignment: Motor=left, Current/Min/Max/Coverage=right, Config Range=center
+    # Define column widths: Motor(10), Current(12), Min(12), Max(12), Config Range(20), Coverage(12), Target Zero(12)
+    # Alignment: Motor=left, Current/Min/Max/Target Zero=right, Config Range=center, Coverage=right
     table = TableDisplay(
         display,
-        columns_length=[10, 12, 12, 12, 20, 12],
-        align=["left", "right", "right", "right", "center", "right"],
+        columns_length=[10, 12, 12, 12, 20, 12, 12],
+        align=["left", "right", "right", "right", "center", "right", "right"],
     )
 
     # Set header row (row 0)
-    table.row(0, ["Motor", "Current", "Min", "Max", "Config Range", "Coverage"])
+    table.row(0, ["Motor", "Current", "Min", "Max", "Config Range", "Coverage", "Target Zero"])
 
     # Set separator line (row 1) using display.line directly
-    display.line(1, "-" * 78)
+    display.line(1, "-" * 90)
 
     # Set initial data lines (starting from row 2)
     for idx, config in enumerate(MOTOR_CONFIGS):
-        table.row(idx + 2, [config.name, "Initializing...", "", "", "", ""])
+        table.row(idx + 2, [config.name, "Initializing...", "", "", "", "", ""])
 
     # Render initial table
     display.render()
@@ -240,6 +320,10 @@ async def track_angles(
                 key = check_keyboard_input()
                 if key == "q":
                     break
+                elif key == "s":
+                    # Set zero position and exit
+                    await set_zero(motors_list, trackers_list)
+                    break  # Exit after setting zero
 
             # Update and display each motor's angles
             for motor_idx, config in enumerate(MOTOR_CONFIGS):
@@ -249,9 +333,9 @@ async def track_angles(
                 row_idx = motor_idx + 2  # +2 for header and separator
 
                 if motor is None:
-                    table.row(row_idx, [config.name, "N/A", "", "", "", ""])
+                    table.row(row_idx, [config.name, "N/A", "", "", "", "", ""])
                 elif tracker is None:
-                    table.row(row_idx, [config.name, "No tracker", "", "", "", ""])
+                    table.row(row_idx, [config.name, "No tracker", "", "", "", "", ""])
                 else:
                     try:
                         # Refresh motor status
@@ -284,17 +368,29 @@ async def track_angles(
                                     coverage_str = f"{coverage:.1f}%"
                                 else:
                                     coverage_str = "N/A"
+
+                                # Calculate target zero position
+                                try:
+                                    target_zero_deg = target_angle(
+                                        config=(config.min_angle, config.max_angle),
+                                        tracker=(tracker.min_angle, tracker.max_angle),
+                                        angle=0,
+                                    )
+                                    target_zero_str = f"{target_zero_deg:+.2f}°"
+                                except ValueError:
+                                    target_zero_str = "N/A"
                             else:
                                 coverage_str = "N/A"
+                                target_zero_str = "N/A"
 
                             table.row(
                                 row_idx,
-                                [config.name, current, min_val, max_val, config_range, coverage_str],
+                                [config.name, current, min_val, max_val, config_range, coverage_str, target_zero_str],
                             )
                         else:
-                            table.row(row_idx, [config.name, "No state", "", "", "", ""])
+                            table.row(row_idx, [config.name, "No state", "", "", "", "", ""])
                     except Exception:  # noqa: BLE001
-                        table.row(row_idx, [config.name, "Error", "", "", "", ""])
+                        table.row(row_idx, [config.name, "Error", "", "", "", "", ""])
 
             # Render updated table
             display.render()
