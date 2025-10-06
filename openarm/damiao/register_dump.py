@@ -21,67 +21,69 @@ from .encoding import RegisterAddress
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
+BLUE = "\033[94m"
+ORANGE = "\033[38;5;208m"
 RESET = "\033[0m"
 
 
-# Map of register addresses to their types and readable names
-REGISTER_INFO: dict[RegisterAddress, tuple[str, str]] = {
+# Map of register addresses to their types, readable names, and read/write status
+REGISTER_INFO: dict[RegisterAddress, tuple[str, str, str]] = {
     # Voltage Protection
-    RegisterAddress.UV_VALUE: ("under_voltage", "float"),
-    RegisterAddress.OV_VALUE: ("over_voltage", "float"),
+    RegisterAddress.UV_VALUE: ("under_voltage", "float", "rw"),
+    RegisterAddress.OV_VALUE: ("over_voltage", "float", "rw"),
     # Motor Characteristics
-    RegisterAddress.KT_VALUE: ("torque_coefficient", "float"),
-    RegisterAddress.GREF: ("gear_efficiency", "float"),
+    RegisterAddress.KT_VALUE: ("torque_coefficient", "float", "rw"),
+    RegisterAddress.GREF: ("gear_efficiency", "float", "rw"),
     # Protection Limits
-    RegisterAddress.OT_VALUE: ("over_temperature", "float"),
-    RegisterAddress.OC_VALUE: ("over_current", "float"),
+    RegisterAddress.OT_VALUE: ("over_temperature", "float", "rw"),
+    RegisterAddress.OC_VALUE: ("over_current", "float", "rw"),
     # Mapping Limits
-    RegisterAddress.PMAX: ("position_limit", "float"),
-    RegisterAddress.VMAX: ("velocity_limit", "float"),
-    RegisterAddress.TMAX: ("torque_limit", "float"),
+    RegisterAddress.PMAX: ("position_limit", "float", "rw"),
+    RegisterAddress.VMAX: ("velocity_limit", "float", "rw"),
+    RegisterAddress.TMAX: ("torque_limit", "float", "rw"),
     # Control Loop Parameters
-    RegisterAddress.KP_ASR: ("velocity_kp", "float"),
-    RegisterAddress.KI_ASR: ("velocity_ki", "float"),
-    RegisterAddress.KP_APR: ("position_kp", "float"),
-    RegisterAddress.KI_APR: ("position_ki", "float"),
+    RegisterAddress.KP_ASR: ("velocity_kp", "float", "rw"),
+    RegisterAddress.KI_ASR: ("velocity_ki", "float", "rw"),
+    RegisterAddress.KP_APR: ("position_kp", "float", "rw"),
+    RegisterAddress.KI_APR: ("position_ki", "float", "rw"),
     # Current and Speed Loop Parameters
-    RegisterAddress.I_BW: ("current_loop_bandwidth", "float"),
-    RegisterAddress.DETA: ("speed_loop_damping", "float"),
-    RegisterAddress.V_BW: ("speed_loop_filter_bandwidth", "float"),
-    RegisterAddress.IQ_C1: ("current_loop_gain", "float"),
-    RegisterAddress.VL_C1: ("speed_loop_gain", "float"),
+    RegisterAddress.I_BW: ("current_loop_bandwidth", "float", "rw"),
+    RegisterAddress.DETA: ("speed_loop_damping", "float", "rw"),
+    RegisterAddress.V_BW: ("speed_loop_filter_bandwidth", "float", "rw"),
+    RegisterAddress.IQ_C1: ("current_loop_gain", "float", "rw"),
+    RegisterAddress.VL_C1: ("speed_loop_gain", "float", "rw"),
     # Motor Information (Read-Only)
-    RegisterAddress.HW_VER: ("hardware_version", "int"),
-    RegisterAddress.SW_VER: ("software_version", "int"),
-    RegisterAddress.SN: ("serial_number", "int"),
-    RegisterAddress.SUB_VER: ("sub_version", "int"),
-    RegisterAddress.GR: ("gear_ratio", "float"),
-    RegisterAddress.DAMP: ("motor_damping", "float"),
-    RegisterAddress.INERTIA: ("motor_inertia", "float"),
-    RegisterAddress.NPP: ("motor_pole_pairs", "int"),
-    RegisterAddress.RS: ("motor_phase_resistance", "float"),
-    RegisterAddress.LS: ("motor_phase_inductance", "float"),
-    RegisterAddress.FLUX: ("motor_flux", "float"),
+    RegisterAddress.HW_VER: ("hardware_version", "int", "ro"),
+    RegisterAddress.SW_VER: ("software_version", "int", "ro"),
+    RegisterAddress.SN: ("serial_number", "int", "ro"),
+    RegisterAddress.SUB_VER: ("sub_version", "int", "ro"),
+    RegisterAddress.GR: ("gear_ratio", "float", "ro"),
+    RegisterAddress.DAMP: ("motor_damping", "float", "ro"),
+    RegisterAddress.INERTIA: ("motor_inertia", "float", "ro"),
+    RegisterAddress.NPP: ("motor_pole_pairs", "int", "ro"),
+    RegisterAddress.RS: ("motor_phase_resistance", "float", "ro"),
+    RegisterAddress.LS: ("motor_phase_inductance", "float", "ro"),
+    RegisterAddress.FLUX: ("motor_flux", "float", "ro"),
     # Motion Parameters
-    RegisterAddress.ACC: ("acceleration", "float"),
-    RegisterAddress.DEC: ("deceleration", "float"),
-    RegisterAddress.MAX_SPD: ("max_speed", "float"),
+    RegisterAddress.ACC: ("acceleration", "float", "rw"),
+    RegisterAddress.DEC: ("deceleration", "float", "rw"),
+    RegisterAddress.MAX_SPD: ("max_speed", "float", "rw"),
     # Communication Parameters
-    RegisterAddress.MST_ID: ("master_id", "int"),
-    RegisterAddress.ESC_ID: ("slave_id", "int"),
-    RegisterAddress.TIMEOUT: ("timeout", "int"),
-    RegisterAddress.CAN_BR: ("can_baudrate", "int"),
-    RegisterAddress.CTRL_MODE: ("control_mode", "int"),
+    RegisterAddress.MST_ID: ("master_id", "int", "rw"),
+    RegisterAddress.ESC_ID: ("slave_id", "int", "rw"),
+    RegisterAddress.TIMEOUT: ("timeout", "int", "rw"),
+    RegisterAddress.CAN_BR: ("can_baudrate", "int", "rw"),
+    RegisterAddress.CTRL_MODE: ("control_mode", "int", "rw"),
     # Calibration Parameters (Read-Only)
-    RegisterAddress.U_OFF: ("phase_u_offset", "float"),
-    RegisterAddress.V_OFF: ("phase_v_offset", "float"),
-    RegisterAddress.K1: ("compensation_factor_1", "float"),
-    RegisterAddress.K2: ("compensation_factor_2", "float"),
-    RegisterAddress.M_OFF: ("angle_offset", "float"),
-    RegisterAddress.DIR: ("direction", "float"),
+    RegisterAddress.U_OFF: ("phase_u_offset", "float", "ro"),
+    RegisterAddress.V_OFF: ("phase_v_offset", "float", "ro"),
+    RegisterAddress.K1: ("compensation_factor_1", "float", "ro"),
+    RegisterAddress.K2: ("compensation_factor_2", "float", "ro"),
+    RegisterAddress.M_OFF: ("angle_offset", "float", "ro"),
+    RegisterAddress.DIR: ("direction", "float", "ro"),
     # Position Parameters (Read-Only)
-    RegisterAddress.P_M: ("motor_position", "float"),
-    RegisterAddress.XOUT: ("output_shaft_position", "float"),
+    RegisterAddress.P_M: ("motor_position", "float", "ro"),
+    RegisterAddress.XOUT: ("output_shaft_position", "float", "ro"),
 }
 
 
@@ -203,9 +205,11 @@ async def dump_registers_for_bus(
 
     # Read all registers for all motors
     register_values: dict[str, dict[str, str]] = {}  # {register_name: {motor_name: value}}
+    register_mode: dict[str, str] = {}  # {register_name: "ro" or "rw"}
 
-    for register, (reg_name, reg_type) in REGISTER_INFO.items():
+    for register, (reg_name, reg_type, mode) in REGISTER_INFO.items():
         register_values[reg_name] = {}
+        register_mode[reg_name] = mode
         for motor_name, motor in motors_data:
             value = await read_register(motor, register, reg_type)
             if value is not None:
@@ -227,12 +231,15 @@ async def dump_registers_for_bus(
     sys.stdout.write(f"{GREEN}{header}{RESET}\n")
     sys.stdout.write("-" * len(header) + "\n")
 
-    # Print each register row
+    # Print each register row with color coding
     for reg_name in register_values:
-        row = f"{reg_name:<{name_col_width}}"
+        # Choose color based on read/write status
+        color = BLUE if register_mode[reg_name] == "rw" else ORANGE
+        row = f"{color}{reg_name:<{name_col_width}}"
         for motor_name in motor_names:
             value = register_values[reg_name].get(motor_name, "-")
             row += f"{value:>{motor_col_width}}"
+        row += RESET
         sys.stdout.write(f"{row}\n")
 
     sys.stdout.write("\n")
