@@ -7,8 +7,6 @@ displaying them in a tabular format for easy comparison across motors.
 import argparse
 import asyncio
 import sys
-from collections.abc import Callable, Coroutine
-from typing import Any
 
 import can
 
@@ -145,10 +143,30 @@ async def dump_registers_for_bus(
         )
         return
 
-    sys.stdout.write(f"\nDetected {len(detected)} motor(s) on bus {bus_idx + 1}\n\n")
+    sys.stdout.write(f"\nDetected {len(detected)} motor(s) on bus {bus_idx + 1}\n")
 
     # Create lookup for detected motors
     detected_lookup = {info.slave_id: info for info in detected}
+
+    # Print detection table
+    sys.stdout.write(f"\n{GREEN}{'Motor':<10}{'Slave ID':<12}{'Master ID':<12}{RESET}\n")
+    sys.stdout.write("-" * 34 + "\n")
+
+    config_lookup = {config.slave_id: config for config in MOTOR_CONFIGS}
+    for info in detected:
+        if info.slave_id in config_lookup:
+            config = config_lookup[info.slave_id]
+            status = GREEN if info.master_id == config.master_id else YELLOW
+            sys.stdout.write(
+                f"{status}{config.name:<10}0x{info.slave_id:02X} ({info.slave_id:<3}) "
+                f"0x{info.master_id:02X} ({info.master_id:<3}){RESET}\n"
+            )
+        else:
+            sys.stdout.write(
+                f"{YELLOW}Unknown{'':<3}0x{info.slave_id:02X} ({info.slave_id:<3}) "
+                f"0x{info.master_id:02X} ({info.master_id:<3}){RESET}\n"
+            )
+    sys.stdout.write("\n")
 
     # Build list of detected motors with their configs
     motors_data: list[tuple[str, Motor]] = []
@@ -193,7 +211,7 @@ async def dump_registers_for_bus(
     # Print header
     header = f"{'Register':<{name_col_width}}"
     for motor_name in motor_names:
-        header += f"{motor_name:^{motor_col_width}}"
+        header += f"{motor_name:>{motor_col_width}}"
     sys.stdout.write(f"{GREEN}{header}{RESET}\n")
     sys.stdout.write("-" * len(header) + "\n")
 
@@ -202,7 +220,7 @@ async def dump_registers_for_bus(
         row = f"{reg_name:<{name_col_width}}"
         for motor_name in motor_names:
             value = register_values[reg_name].get(motor_name, "-")
-            row += f"{value:^{motor_col_width}}"
+            row += f"{value:>{motor_col_width}}"
         sys.stdout.write(f"{row}\n")
 
     sys.stdout.write("\n")
