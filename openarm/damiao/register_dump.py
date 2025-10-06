@@ -153,19 +153,31 @@ async def dump_registers_for_bus(
     sys.stdout.write("-" * 34 + "\n")
 
     config_lookup = {config.slave_id: config for config in MOTOR_CONFIGS}
-    for info in detected:
-        if info.slave_id in config_lookup:
-            config = config_lookup[info.slave_id]
+
+    # Show all motors from config (detected and undetected)
+    for config in MOTOR_CONFIGS:
+        if config.slave_id in detected_lookup:
+            info = detected_lookup[config.slave_id]
             status = GREEN if info.master_id == config.master_id else YELLOW
             sys.stdout.write(
-                f"{status}{config.name:<10}0x{info.slave_id:02X} ({info.slave_id:<3}) "
-                f"0x{info.master_id:02X} ({info.master_id:<3}){RESET}\n"
+                f"{status}{config.name:<10}0x{info.slave_id:02X}{'':<6}"
+                f"0x{info.master_id:02X}{RESET}\n"
             )
         else:
+            # Not detected - show in red
             sys.stdout.write(
-                f"{YELLOW}Unknown{'':<3}0x{info.slave_id:02X} ({info.slave_id:<3}) "
-                f"0x{info.master_id:02X} ({info.master_id:<3}){RESET}\n"
+                f"{RED}{config.name:<10}0x{config.slave_id:02X}{'':<6}"
+                f"0x{config.master_id:02X}{RESET}\n"
             )
+
+    # Show any unknown motors not in config
+    for info in detected:
+        if info.slave_id not in config_lookup:
+            sys.stdout.write(
+                f"{YELLOW}Unknown{'':<3}0x{info.slave_id:02X}{'':<6}"
+                f"0x{info.master_id:02X}{RESET}\n"
+            )
+
     sys.stdout.write("\n")
 
     # Build list of detected motors with their configs
