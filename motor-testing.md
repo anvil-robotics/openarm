@@ -30,9 +30,11 @@ Test motors individually using the commands below. Each motor follows this seque
 2. Set control mode to POS_VEL
 3. Move to zero position (0.0 rad)
 4. Wait 2 seconds
-5. Move to test position (+0.1 rad)
+5. Move to test position (+0.3 rad)
 6. Wait 2 seconds
-7. Disable motor
+7. Move back to zero position (0.0 rad)
+8. Wait 2 seconds
+9. Disable motor
 
 #### J1 (DM8009)
 ```bash
@@ -40,7 +42,9 @@ python -m openarm.damiao enable --motor-type DM8009 --iface can0 1 17
 python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 1 17 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 1 17 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 1 17 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 1 17 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM8009 --iface can0 1 17
 ```
@@ -51,7 +55,9 @@ python -m openarm.damiao enable --motor-type DM8009 --iface can0 2 18
 python -m openarm.damiao param set --motor-type DM8009 --iface can0 2 18 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 2 18 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 2 18 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 2 18 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface can0 2 18 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM8009 --iface can0 2 18
 ```
@@ -62,7 +68,9 @@ python -m openarm.damiao enable --motor-type DM4340 --iface can0 3 19
 python -m openarm.damiao param set --motor-type DM4340 --iface can0 3 19 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 3 19 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 3 19 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 3 19 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 3 19 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4340 --iface can0 3 19
 ```
@@ -73,7 +81,9 @@ python -m openarm.damiao enable --motor-type DM4340 --iface can0 4 20
 python -m openarm.damiao param set --motor-type DM4340 --iface can0 4 20 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 4 20 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 4 20 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 4 20 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4340 --iface can0 4 20 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4340 --iface can0 4 20
 ```
@@ -84,7 +94,9 @@ python -m openarm.damiao enable --motor-type DM4310 --iface can0 5 21
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 5 21 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 5 21 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 5 21 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 5 21 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 5 21 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4310 --iface can0 5 21
 ```
@@ -95,7 +107,9 @@ python -m openarm.damiao enable --motor-type DM4310 --iface can0 6 22
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 6 22 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 6 22 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 6 22 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 6 22 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 6 22 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4310 --iface can0 6 22
 ```
@@ -106,7 +120,9 @@ python -m openarm.damiao enable --motor-type DM4310 --iface can0 7 23
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 7 23 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 7 23 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 7 23 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 7 23 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 7 23 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4310 --iface can0 7 23
 ```
@@ -117,7 +133,9 @@ python -m openarm.damiao enable --motor-type DM4310 --iface can0 8 24
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 8 24 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.1 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.3 1.0
+sleep 2
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.0 2.0
 sleep 2
 python -m openarm.damiao disable --motor-type DM4310 --iface can0 8 24
 ```
