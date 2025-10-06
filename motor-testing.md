@@ -133,7 +133,7 @@ python -m openarm.damiao enable --motor-type DM4310 --iface can0 8 24
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 8 24 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.0 2.0
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.3 1.0
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 -0.3 1.0
 sleep 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 8 24 0.0 2.0
 sleep 2
