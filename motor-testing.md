@@ -18,6 +18,7 @@ python -m openarm.damiao.detect --interface socketcan
 ```
 
 This command will:
+
 - Detect all available CAN buses
 - Scan for motors on each bus
 - Display motor status with slave ID and master ID
@@ -26,6 +27,7 @@ This command will:
 ### 2. Test Each Motor
 
 Test motors individually using the commands below. Each motor follows this sequence:
+
 1. Enable motor
 2. Set control mode to POS_VEL
 3. Move to zero position (0.0 rad)
@@ -37,6 +39,7 @@ Test motors individually using the commands below. Each motor follows this seque
 9. Disable motor
 
 #### J1 (DM8009)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM8009 --iface can0 1 17
 python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 2
@@ -50,6 +53,7 @@ python -m openarm.damiao disable --motor-type DM8009 --iface can0 1 17
 ```
 
 #### J2 (DM8009)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM8009 --iface can0 2 18
 python -m openarm.damiao param set --motor-type DM8009 --iface can0 2 18 control_mode 2
@@ -63,6 +67,7 @@ python -m openarm.damiao disable --motor-type DM8009 --iface can0 2 18
 ```
 
 #### J3 (DM4340)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4340 --iface can0 3 19
 python -m openarm.damiao param set --motor-type DM4340 --iface can0 3 19 control_mode 2
@@ -76,6 +81,7 @@ python -m openarm.damiao disable --motor-type DM4340 --iface can0 3 19
 ```
 
 #### J4 (DM4340)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4340 --iface can0 4 20
 python -m openarm.damiao param set --motor-type DM4340 --iface can0 4 20 control_mode 2
@@ -89,6 +95,7 @@ python -m openarm.damiao disable --motor-type DM4340 --iface can0 4 20
 ```
 
 #### J5 (DM4310)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4310 --iface can0 5 21
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 5 21 control_mode 2
@@ -102,6 +109,7 @@ python -m openarm.damiao disable --motor-type DM4310 --iface can0 5 21
 ```
 
 #### J6 (DM4310)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4310 --iface can0 6 22
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 6 22 control_mode 2
@@ -115,6 +123,7 @@ python -m openarm.damiao disable --motor-type DM4310 --iface can0 6 22
 ```
 
 #### J7 (DM4310)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4310 --iface can0 7 23
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 7 23 control_mode 2
@@ -128,6 +137,7 @@ python -m openarm.damiao disable --motor-type DM4310 --iface can0 7 23
 ```
 
 #### J8 (DM4310)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM4310 --iface can0 8 24
 python -m openarm.damiao param set --motor-type DM4310 --iface can0 8 24 control_mode 2
@@ -150,13 +160,13 @@ python -m openarm.damiao disable --motor-type DM4310 --iface can0 8 24
 
 ## Reference Motor Configuration
 
-| Motor | Type   | Slave ID | Master ID | Min Angle | Max Angle | Notes |
-|-------|--------|----------|-----------|-----------|-----------|-------|
-| J1    | DM8009 | 1 (0x01) | 17 (0x11) | -200°     | +80°      | Inverted |
-| J2    | DM8009 | 2 (0x02) | 18 (0x12) | -190°     | +10°      | Inverted |
-| J3    | DM4340 | 3 (0x03) | 19 (0x13) | -90°      | +90°      | Inverted |
+| Motor | Type   | Slave ID | Master ID | Min Angle | Max Angle | Notes        |
+| ----- | ------ | -------- | --------- | --------- | --------- | ------------ |
+| J1    | DM8009 | 1 (0x01) | 17 (0x11) | -200°     | +80°      | Inverted     |
+| J2    | DM8009 | 2 (0x02) | 18 (0x12) | -190°     | +10°      | Inverted     |
+| J3    | DM4340 | 3 (0x03) | 19 (0x13) | -90°      | +90°      | Inverted     |
 | J4    | DM4340 | 4 (0x04) | 20 (0x14) | 0°        | +140°     | Not inverted |
-| J5    | DM4310 | 5 (0x05) | 21 (0x15) | -90°      | +90°      | Inverted |
-| J6    | DM4310 | 6 (0x06) | 22 (0x16) | -45°      | +45°      | Inverted |
-| J7    | DM4310 | 7 (0x07) | 23 (0x17) | -90°      | +90°      | Inverted |
+| J5    | DM4310 | 5 (0x05) | 21 (0x15) | -90°      | +90°      | Inverted     |
+| J6    | DM4310 | 6 (0x06) | 22 (0x16) | -45°      | +45°      | Inverted     |
+| J7    | DM4310 | 7 (0x07) | 23 (0x17) | -90°      | +90°      | Inverted     |
 | J8    | DM4310 | 8 (0x08) | 24 (0x18) | -45°      | 0°        | Not inverted |
