@@ -111,7 +111,7 @@ async def set_zero(
     trackers_list: list[AngleTracker | None],
 ) -> None:
     """Set zero position for all motors based on tracked ranges."""
-    sys.stdout.write(f"\n{CYAN}Setting zero position for all motors...{RESET}\n")
+    sys.stdout.write(f"\r\n{CYAN}Setting zero position for all motors...{RESET}\r\n")
 
     for motor, tracker, config in zip(
         motors_list, trackers_list, MOTOR_CONFIGS, strict=False
@@ -121,7 +121,7 @@ async def set_zero(
 
         if tracker.min_angle == inf or tracker.max_angle == -inf:
             sys.stdout.write(
-                f"  {YELLOW}✗{RESET} {config.name}: No data collected, skipping\n"
+                f"  {YELLOW}✗{RESET} {config.name}: No data collected, skipping\r\n"
             )
             continue
 
@@ -151,12 +151,12 @@ async def set_zero(
             await motor.set_zero_position()
             await motor.save_parameters()
 
-            sys.stdout.write(f"  {GREEN}✓{RESET} {config.name}: Zero set\n")
+            sys.stdout.write(f"  {GREEN}✓{RESET} {config.name}: Zero set\r\n")
 
         except Exception as e:  # noqa: BLE001
-            sys.stdout.write(f"  {RED}✗{RESET} {config.name}: Error - {e}\n")
+            sys.stdout.write(f"  {RED}✗{RESET} {config.name}: Error - {e}\r\n")
 
-    sys.stdout.write(f"\n{GREEN}Zero position setting complete!{RESET}\n")
+    sys.stdout.write(f"\r\n{GREEN}Zero position setting complete!{RESET}\r\n")
 
 
 async def main(args: argparse.Namespace) -> None:
@@ -181,13 +181,13 @@ async def main(args: argparse.Namespace) -> None:
 async def _main(can_bus: can.BusABC) -> None:
     """Process motors on the bus and track angle ranges."""
     # Detect motors on the bus
-    sys.stdout.write(f"\n{CYAN}Scanning for motors...{RESET}\n")
+    sys.stdout.write(f"\r\n{CYAN}Scanning for motors...{RESET}\r\n")
     slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
 
     # Detect motors using raw CAN bus
     detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
 
-    sys.stdout.write("\nMotor Status:\n")
+    sys.stdout.write("\r\nMotor Status:\r\n")
 
     # Create lookup for detected motors by slave ID
     detected_lookup = {info.slave_id: info for info in detected}
@@ -249,10 +249,10 @@ async def _main(can_bus: can.BusABC) -> None:
         sys.stderr.write(f"\n{RED}Error: No motors detected.{RESET}\n")
         return
 
-    sys.stdout.write(f"\n{GREEN}Total {total_motors} motors detected{RESET}\n")
+    sys.stdout.write(f"\r\n{GREEN}Total {total_motors} motors detected{RESET}\r\n")
 
     # Enable motors with MIT control mode (zero torque for passive tracking)
-    sys.stdout.write("\nEnabling motors with MIT control (zero torque)...\n")
+    sys.stdout.write("\r\nEnabling motors with MIT control (zero torque)...\r\n")
     for motor in motors_list:
         if motor:
             try:
@@ -426,13 +426,13 @@ async def track_angles(  # noqa: C901, PLR0912
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
         # Disable all motors for safety
-        sys.stdout.write("\nDisabling all motors...\n")
+        sys.stdout.write("\r\nDisabling all motors...\r\n")
         for motor in motors_list:
             if motor:
                 with contextlib.suppress(Exception):
                     await motor.disable()
 
-        sys.stdout.write("Angle tracking stopped.\n")
+        sys.stdout.write("Angle tracking stopped.\r\n")
 
 
 def parse_arguments() -> argparse.Namespace:
