@@ -114,6 +114,7 @@ def target_angle(
 async def set_zero(
     motors_list: list[Motor | None],
     trackers_list: list[AngleTracker | None],
+    side: str,
 ) -> None:
     """Set zero position for all motors based on tracked ranges."""
     sys.stdout.write(f"\r\n{CYAN}Setting zero position for all motors...{RESET}\r\n")
@@ -131,9 +132,17 @@ async def set_zero(
             continue
 
         try:
+            # Get side-specific config angles
+            config_min_angle = (
+                config.min_angle_left if side == "left" else config.min_angle_right
+            )
+            config_max_angle = (
+                config.max_angle_left if side == "left" else config.max_angle_right
+            )
+
             # Calculate target position where zero should be set
             target_pos_deg = target_angle(
-                config=(config.min_angle, config.max_angle),
+                config=(config_min_angle, config_max_angle),
                 tracker=(tracker.min_angle, tracker.max_angle),
                 angle=0,
             )
@@ -178,12 +187,12 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     try:
-        return await _main(can_bus)
+        return await _main(can_bus, args.side)
     finally:
         can_bus.shutdown()
 
 
-async def _main(can_bus: can.BusABC) -> None:
+async def _main(can_bus: can.BusABC, side: str) -> None:
     """Process motors on the bus and track angle ranges."""
     # Detect motors on the bus
     sys.stdout.write(f"\r\n{CYAN}Scanning for motors...{RESET}\r\n")
@@ -270,11 +279,13 @@ async def _main(can_bus: can.BusABC) -> None:
                 sys.stderr.write(f"{RED}Error enabling motor: {e}{RESET}\n")
 
     # Start angle tracking
-    await track_angles(motors_list, trackers_list)
+    await track_angles(motors_list, trackers_list, side)
 
 
 async def track_angles(  # noqa: C901, PLR0912
-    motors_list: list[Motor | None], trackers_list: list[AngleTracker | None]
+    motors_list: list[Motor | None],
+    trackers_list: list[AngleTracker | None],
+    side: str,
 ) -> None:
     """Track angle ranges for all motors continuously."""
     sys.stdout.write(
@@ -353,7 +364,7 @@ async def track_angles(  # noqa: C901, PLR0912
                     break
                 if key == "s":
                     # Set zero position and exit
-                    await set_zero(motors_list, trackers_list)
+                    await set_zero(motors_list, trackers_list, side)
                     break  # Exit after setting zero
 
             # Update and display each motor's angles
@@ -390,13 +401,23 @@ async def track_angles(  # noqa: C901, PLR0912
                                 if tracker.max_angle != -inf
                                 else "N/A"
                             )
-                            config_min = f"{config.min_angle:+.0f}°"
-                            config_max = f"{config.max_angle:+.0f}°"
+                            config_min_angle = (
+                                config.min_angle_left
+                                if side == "left"
+                                else config.min_angle_right
+                            )
+                            config_max_angle = (
+                                config.max_angle_left
+                                if side == "left"
+                                else config.max_angle_right
+                            )
+                            config_min = f"{config_min_angle:+.0f}°"
+                            config_max = f"{config_max_angle:+.0f}°"
 
                             # Calculate coverage percentage
                             if tracker.min_angle != inf and tracker.max_angle != -inf:
                                 observed_span = tracker.max_angle - tracker.min_angle
-                                config_span = config.max_angle - config.min_angle
+                                config_span = config_max_angle - config_min_angle
                                 if config_span > 0:
                                     coverage = (observed_span / config_span) * 100
                                     # Color code based on coverage range
@@ -417,7 +438,7 @@ async def track_angles(  # noqa: C901, PLR0912
                                 # Calculate target zero position
                                 try:
                                     target_zero_deg = target_angle(
-                                        config=(config.min_angle, config.max_angle),
+                                        config=(config_min_angle, config_max_angle),
                                         tracker=(tracker.min_angle, tracker.max_angle),
                                         angle=0,
                                     )
@@ -517,6 +538,14 @@ def parse_arguments() -> argparse.Namespace:
         "-i",
         default="socketcan",
         help="CAN interface type (default: socketcan)",
+    )
+
+    parser.add_argument(
+        "--side",
+        "-s",
+        required=True,
+        choices=["left", "right"],
+        help="Arm side (left or right)",
     )
 
     return parser.parse_args()
