@@ -59,6 +59,7 @@ python -m openarm.damiao.configure --channel can0 --set-motor J1 --set-master 0x
 ```
 
 **Arguments:**
+
 - `--channel CHANNEL`: CAN channel (required, e.g., can0, can1)
 - `--interface INTERFACE`: CAN interface type (default: socketcan)
 - `--set-master ID`: Set master ID (hex: 0x11 or decimal: 17)
@@ -69,11 +70,11 @@ python -m openarm.damiao.configure --channel can0 --set-motor J1 --set-master 0x
 - `--allow-multiple`: Allow configuring multiple motors at once
 
 **Notes:**
+
 - When using `--set-motor`, both master and slave IDs are set from predefined configuration
 - `--set-master` or `--set-slave` override the predefined values from `--set-motor`
 - Motors are auto-detected on the specified channel
 - The script assumes DM8009 motor type by default
-
 
 ### CAN Interface Setup (Linux only)
 
