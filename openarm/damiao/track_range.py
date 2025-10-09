@@ -46,6 +46,11 @@ YELLOW = "\033[93m"
 CYAN = "\033[96m"
 RESET = "\033[0m"
 
+# Coverage and position thresholds
+MIN_COVERAGE_PERCENT = 98
+MAX_COVERAGE_PERCENT = 102
+MAX_POSITION_ERROR_DEG = 10
+
 
 def check_keyboard_input() -> str | None:
     """Check if a key has been pressed (non-blocking)."""
@@ -283,27 +288,47 @@ async def track_angles(  # noqa: C901, PLR0912
     display = Display()
     display.set_height(num_motors + 2)
 
-    # Define column widths: Motor(10), Current(12), Min(12), Max(12),
-    # Config Range(20), Coverage(12), Target Zero(12)
-    # Alignment: Motor=left, Current/Min/Max/Target Zero=right,
-    # Config Range=center, Coverage=right
+    # Define column widths: Motor(10), Target Zero(12), Current(12), Min(12),
+    # Max(12), Config Min(12), Config Max(12), Coverage(12), Status(30)
+    # Alignment: Motor=left, all numeric columns=right, Status=left
     table = TableDisplay(
         display,
-        columns_length=[10, 12, 12, 12, 20, 12, 12],
-        align=["left", "right", "right", "right", "center", "right", "right"],
+        columns_length=[10, 12, 12, 12, 12, 12, 12, 12, 30],
+        align=[
+            "left",
+            "right",
+            "right",
+            "right",
+            "right",
+            "right",
+            "right",
+            "right",
+            "right",
+        ],
     )
 
     # Set header row (row 0)
     table.row(
-        0, ["Motor", "Current", "Min", "Max", "Config Range", "Coverage", "Target Zero"]
+        0,
+        [
+            "Motor",
+            "Target Zero",
+            "Current",
+            "Min",
+            "Max",
+            "Config Min",
+            "Config Max",
+            "Coverage",
+            "Status",
+        ],
     )
 
     # Set separator line (row 1) using display.line directly
-    display.line(1, "-" * 90)
+    display.line(1, "-" * 124)
 
     # Set initial data lines (starting from row 2)
     for idx, config in enumerate(MOTOR_CONFIGS):
-        table.row(idx + 2, [config.name, "Initializing...", "", "", "", "", ""])
+        table.row(idx + 2, [config.name, "", "Initializing...", "", "", "", "", "", ""])
 
     # Render initial table
     display.render()
@@ -339,9 +364,11 @@ async def track_angles(  # noqa: C901, PLR0912
                 row_idx = motor_idx + 2  # +2 for header and separator
 
                 if motor is None:
-                    table.row(row_idx, [config.name, "N/A", "", "", "", "", ""])
+                    table.row(row_idx, [config.name, "", "N/A", "", "", "", "", "", ""])
                 elif tracker is None:
-                    table.row(row_idx, [config.name, "No tracker", "", "", "", "", ""])
+                    table.row(
+                        row_idx, [config.name, "", "No tracker", "", "", "", "", "", ""]
+                    )
                 else:
                     try:
                         # Refresh motor status
@@ -363,10 +390,8 @@ async def track_angles(  # noqa: C901, PLR0912
                                 if tracker.max_angle != -inf
                                 else "N/A"
                             )
-                            config_range = (
-                                f"[{config.min_angle:+.0f}° "
-                                f"to {config.max_angle:+.0f}°]"
-                            )
+                            config_min = f"{config.min_angle:+.0f}°"
+                            config_max = f"{config.max_angle:+.0f}°"
 
                             # Calculate coverage percentage
                             if tracker.min_angle != inf and tracker.max_angle != -inf:
@@ -374,7 +399,18 @@ async def track_angles(  # noqa: C901, PLR0912
                                 config_span = config.max_angle - config.min_angle
                                 if config_span > 0:
                                     coverage = (observed_span / config_span) * 100
-                                    coverage_str = f"{coverage:.1f}%"
+                                    # Color code based on coverage range
+                                    if (
+                                        MIN_COVERAGE_PERCENT
+                                        <= coverage
+                                        <= MAX_COVERAGE_PERCENT
+                                    ):
+                                        color = GREEN
+                                    elif coverage < MIN_COVERAGE_PERCENT:
+                                        color = YELLOW
+                                    else:  # coverage > MAX_COVERAGE_PERCENT
+                                        color = RED
+                                    coverage_str = f"{color}{coverage:.1f}%{RESET}"
                                 else:
                                     coverage_str = "N/A"
 
@@ -385,31 +421,59 @@ async def track_angles(  # noqa: C901, PLR0912
                                         tracker=(tracker.min_angle, tracker.max_angle),
                                         angle=0,
                                     )
-                                    target_zero_str = f"{target_zero_deg:+.2f}°"
+                                    # Color target zero red if too far from current
+                                    distance = abs(
+                                        tracker.current_angle - target_zero_deg
+                                    )
+                                    if distance > MAX_POSITION_ERROR_DEG:
+                                        target_zero_str = (
+                                            f"{RED}{target_zero_deg:+.2f}°{RESET}"
+                                        )
+                                    else:
+                                        target_zero_str = f"{target_zero_deg:+.2f}°"
                                 except ValueError:
+                                    target_zero_deg = None
                                     target_zero_str = "N/A"
+
+                                # Determine status message
+                                if coverage < MIN_COVERAGE_PERCENT:
+                                    status_str = f"{YELLOW}Cover more angles{RESET}"
+                                elif (
+                                    target_zero_deg is not None
+                                    and abs(tracker.current_angle - target_zero_deg)
+                                    > MAX_POSITION_ERROR_DEG
+                                ):
+                                    status_str = f"{RED}Move near zero{RESET}"
+                                else:
+                                    status_str = f"{GREEN}Ready{RESET}"
                             else:
                                 coverage_str = "N/A"
                                 target_zero_str = "N/A"
+                                status_str = ""
 
                             table.row(
                                 row_idx,
                                 [
                                     config.name,
+                                    target_zero_str,
                                     current,
                                     min_val,
                                     max_val,
-                                    config_range,
+                                    config_min,
+                                    config_max,
                                     coverage_str,
-                                    target_zero_str,
+                                    status_str,
                                 ],
                             )
                         else:
                             table.row(
-                                row_idx, [config.name, "No state", "", "", "", "", ""]
+                                row_idx,
+                                [config.name, "", "No state", "", "", "", "", "", ""],
                             )
                     except Exception:  # noqa: BLE001
-                        table.row(row_idx, [config.name, "Error", "", "", "", "", ""])
+                        table.row(
+                            row_idx, [config.name, "", "Error", "", "", "", "", "", ""]
+                        )
 
             # Render updated table
             display.render()

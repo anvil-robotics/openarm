@@ -1,5 +1,6 @@
 """Terminal display utilities for formatted output with cursor control."""
 
+import re
 import sys
 
 
@@ -107,6 +108,9 @@ class TableDisplay:
 
     """
 
+    # ANSI escape sequence pattern
+    _ANSI_PATTERN = re.compile(r"\033\[[0-9;]*m")
+
     def __init__(
         self,
         display: Display,
@@ -126,6 +130,30 @@ class TableDisplay:
         self._columns_length = columns_length
         self._align = align or ["left"] * len(columns_length)
 
+    @staticmethod
+    def _visible_length(text: str) -> int:
+        """Get visible length of text, excluding ANSI escape sequences."""
+        return len(TableDisplay._ANSI_PATTERN.sub("", text))
+
+    @staticmethod
+    def _pad_with_ansi(text: str, width: int, alignment: str) -> str:
+        """Pad text to width, accounting for ANSI codes."""
+        visible_len = TableDisplay._visible_length(text)
+        padding_needed = width - visible_len
+
+        if padding_needed <= 0:
+            return text
+
+        if alignment == "left":
+            return text + " " * padding_needed
+        if alignment == "right":
+            return " " * padding_needed + text
+        if alignment == "center":
+            left_pad = padding_needed // 2
+            right_pad = padding_needed - left_pad
+            return " " * left_pad + text + " " * right_pad
+        return text
+
     def row(self, n: int, cells: list[str]) -> None:
         """Set content for row n with automatic column formatting.
 
@@ -141,23 +169,19 @@ class TableDisplay:
                 col_width = self._columns_length[i]
                 alignment = self._align[i] if i < len(self._align) else "left"
 
-                # Truncate if cell exceeds column width
-                truncated_cell = (
-                    cell_content[:col_width]
-                    if len(cell_content) > col_width
-                    else cell_content
-                )
-
-                # Pad cell to column width based on alignment
-                if alignment == "left":
-                    formatted_cell = truncated_cell.ljust(col_width)
-                elif alignment == "right":
-                    formatted_cell = truncated_cell.rjust(col_width)
-                elif alignment == "center":
-                    formatted_cell = truncated_cell.center(col_width)
+                # Check if truncation is needed based on visible length
+                visible_len = self._visible_length(cell_content)
+                if visible_len > col_width:
+                    # Truncate while preserving ANSI codes if possible
+                    # For simplicity, just take first col_width characters
+                    truncated_cell = cell_content[:col_width]
                 else:
-                    # Default to left if unknown alignment
-                    formatted_cell = truncated_cell.ljust(col_width)
+                    truncated_cell = cell_content
+
+                # Pad cell to column width based on alignment (ANSI-aware)
+                formatted_cell = self._pad_with_ansi(
+                    truncated_cell, col_width, alignment
+                )
 
                 formatted_cells.append(formatted_cell)
             else:
