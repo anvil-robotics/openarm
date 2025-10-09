@@ -365,22 +365,6 @@ async def _motor_set_param(args: argparse.Namespace) -> None:
         sys.stderr.write(f"Available parameters: {', '.join(param_methods.keys())}\n")
         sys.exit(1)
 
-    # Handle different parameter types
-    if param_name == "control_mode":
-        # Convert string to ControlMode enum
-        try:
-            value = ControlMode[value.upper()]
-        except KeyError:
-            sys.stderr.write(f"Invalid control mode: {value}\n")
-            sys.stderr.write(
-                f"Valid modes: {', '.join([m.name for m in ControlMode])}\n"
-            )
-            sys.exit(1)
-    elif param_name in ["master_id", "slave_id", "timeout", "can_baudrate"]:
-        value = int(value)
-    else:
-        value = float(value)
-
     result = await param_methods[param_name](value)
     sys.stdout.write(f"{param_name} set to: {result}\n")
 

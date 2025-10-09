@@ -1,0 +1,157 @@
+#!/bin/bash
+
+# =============================================================================
+# Usage: sudo ./setup_can.sh [interface_name1] [interface_name2] ...
+#        sudo ./setup_can.sh --help
+#
+# Description:
+#   This script configures CAN devices using systemd-networkd with a fixed
+#   bitrate (1 Mbps) and ensures they always have consistent interface names
+#   across reboots or replugging. Interface names are provided as arguments.
+#   If no udev rule exists yet, the script will detect the device on plug-in,
+#   rename it, and append the rule to /etc/udev/rules.d/90-can.rules.
+#
+# Arguments:
+#   interface_name1, interface_name2, ... : Names for CAN interfaces to set up
+#   --help                                : Show usage information
+#
+# Requirements:
+#   - Must be run as root
+#   - systemd-networkd service
+#   - udevadm available on the system
+#
+# Behavior:
+#   1. Checks if the target CAN interface already exists.
+#   2. If not, waits for the user to plug in a CAN device and monitors udev.
+#   3. Detects the device, renames it to the expected interface name, and
+#      writes a persistent udev rule based on the device serial number.
+#   4. Reloads and triggers udev to apply the new rule.
+#   5. Creates systemd network configuration files for each CAN interface
+#      with bitrate 1000000 (1 Mbps) and enables systemd-networkd.
+#
+# Notes:
+#   - Once rules are written, future runs won’t prompt for plugging in devices.
+#   - To reset, remove /etc/udev/rules.d/90-can.rules and systemd network files.
+#
+# Examples:
+#   sudo ./setup_can.sh left_arm right_arm
+# =============================================================================
+
+set -e
+
+function show_help() {
+  cat << EOF
+Usage: sudo $0 [interface_name1] [interface_name2] ...
+       sudo $0 --help
+
+Description:
+  This script configures CAN devices using systemd-networkd with a fixed
+  bitrate (1 Mbps) and ensures they always have consistent interface names
+  across reboots or replugging.
+
+Arguments:
+  interface_name1, interface_name2, ... : Names for CAN interfaces to set up
+  --help                               : Show this help message
+
+Examples:
+  sudo $0 left_arm right_arm
+
+Requirements:
+  - Must be run as root
+  - systemd-networkd service
+  - udevadm available on the system
+
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 1
+fi
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  show_help
+  exit 0
+fi
+
+if [[ $EUID -ne 0 ]]; then
+  echo "This script must be run as root" >&2
+  exit 1
+fi
+
+function setup_can {
+  if ! ip link show "$1" &>/dev/null; then
+    echo "→ Please plug in CAN device..."
+
+    read_step=header
+    udevadm monitor --subsystem-match=net --property | \
+    while read -r line; do
+      case "$read_step" in
+        header)
+            if [[ "$line" =~ UDEV.*add ]]; then
+              read_step=interface
+            else
+              read_step=skip
+            fi
+          ;;
+
+        interface)
+          if [[ "$line" =~ INTERFACE= ]]; then
+            interface=$(echo "$line" | cut -d= -f2)
+            if [ "$interface" = "$1" ]; then
+              echo "→ CAN device detected"
+              break
+            else
+              read_step=serial
+            fi
+          elif [ "$line" = "" ]; then
+            read_step=header
+          fi
+          ;;
+
+        serial)
+          if [[ "$line" =~ ID_SERIAL_SHORT= ]]; then
+            serial=$(echo "$line" | cut -d= -f2)
+            echo "→ CAN device detected: $interface [Serial: $serial]"
+
+            echo "→ Renaming interface: $interface → $1"
+            ip link set "$interface" name "$1"
+
+            echo "→ Updating udev rules"
+            echo "ACTION==\"add\", SUBSYSTEM==\"net\", KERNEL==\"can*\", ATTRS{serial}==\"$serial\", NAME=\"$1\"" >> /etc/udev/rules.d/90-can.rules
+            udevadm control --reload-rules
+            udevadm trigger
+            break
+          elif [ "$line" = "" ]; then
+            read_step=header
+          fi
+          ;;
+
+        skip)
+          if [ "$line" = "" ]; then
+            read_step=header
+          fi
+          ;;
+      esac
+    done
+  fi
+
+  echo "→ Updating systemd-networkd configuration"
+  cat > "/etc/systemd/network/10-${1//_/-}.network" << EOF
+[Match]
+Name=$1
+
+[CAN]
+BitRate=1000000
+EOF
+
+  echo "→ Enabling systemd-networkd"
+  systemctl enable systemd-networkd
+  systemctl restart systemd-networkd
+}
+
+for interface_name in "$@"; do
+  echo "[${interface_name^^}]"
+  setup_can "$interface_name"
+  echo ""
+done
