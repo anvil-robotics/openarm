@@ -6,6 +6,7 @@ along with the minimum and maximum angles observed during the session.
 
 import argparse
 import asyncio
+import contextlib
 import sys
 from dataclasses import dataclass
 from math import inf, pi
@@ -66,10 +67,8 @@ class AngleTracker:
     def update(self, angle: float) -> None:
         """Update current angle and min/max tracking."""
         self.current_angle = angle
-        if angle < self.min_angle:
-            self.min_angle = angle
-        if angle > self.max_angle:
-            self.max_angle = angle
+        self.min_angle = min(self.min_angle, angle)
+        self.max_angle = max(self.max_angle, angle)
 
     def reset(self) -> None:
         """Reset min/max tracking."""
@@ -89,6 +88,7 @@ def target_angle(
 
     Returns:
         Target position in degrees in tracker space
+
     """
     config_min, config_max = config
     tracker_min, tracker_max = tracker
@@ -101,9 +101,9 @@ def target_angle(
         raise ValueError(msg)
 
     # Map desired angle from config space to tracker space
-    # Formula: pos = tracker.min + (tracker.max - tracker.min) * (angle - config.min) / (config.max - config.min)
-    target_pos_deg = tracker_min + observed_span * (angle - config_min) / config_span
-    return target_pos_deg
+    # Formula: pos = tracker.min + (tracker.max - tracker.min) *
+    #               (angle - config.min) / (config.max - config.min)
+    return tracker_min + observed_span * (angle - config_min) / config_span
 
 
 async def set_zero(
@@ -113,7 +113,9 @@ async def set_zero(
     """Set zero position for all motors based on tracked ranges."""
     sys.stdout.write(f"\n{CYAN}Setting zero position for all motors...{RESET}\n")
 
-    for motor, tracker, config in zip(motors_list, trackers_list, MOTOR_CONFIGS, strict=False):
+    for motor, tracker, config in zip(
+        motors_list, trackers_list, MOTOR_CONFIGS, strict=False
+    ):
         if motor is None or tracker is None:
             continue
 
@@ -157,13 +159,12 @@ async def set_zero(
     sys.stdout.write(f"\n{GREEN}Zero position setting complete!{RESET}\n")
 
 
-
 async def main(args: argparse.Namespace) -> None:
     """Run the angle range tracker."""
     # Create single CAN bus from arguments
     try:
         can_bus = can.Bus(channel=args.channel, interface=args.interface)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"{RED}Error: Failed to create CAN bus: {e}{RESET}\n")
         return None
 
@@ -177,7 +178,7 @@ async def main(args: argparse.Namespace) -> None:
         can_bus.shutdown()
 
 
-async def _main(can_bus: can.BusABC) -> None:  # noqa: C901
+async def _main(can_bus: can.BusABC) -> None:
     """Process motors on the bus and track angle ranges."""
     # Detect motors on the bus
     sys.stdout.write(f"\n{CYAN}Scanning for motors...{RESET}\n")
@@ -186,7 +187,7 @@ async def _main(can_bus: can.BusABC) -> None:  # noqa: C901
     # Detect motors using raw CAN bus
     detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
 
-    sys.stdout.write(f"\nMotor Status:\n")
+    sys.stdout.write("\nMotor Status:\n")
 
     # Create lookup for detected motors by slave ID
     detected_lookup = {info.slave_id: info for info in detected}
@@ -267,12 +268,13 @@ async def _main(can_bus: can.BusABC) -> None:  # noqa: C901
     await track_angles(motors_list, trackers_list)
 
 
-async def track_angles(
+async def track_angles(  # noqa: C901, PLR0912
     motors_list: list[Motor | None], trackers_list: list[AngleTracker | None]
-) -> None:  # noqa: C901
+) -> None:
     """Track angle ranges for all motors continuously."""
     sys.stdout.write(
-        f"\n{GREEN}Tracking angle ranges (Press 'S' to set zero and exit, 'Q' to quit){RESET}\n\n"
+        f"\n{GREEN}Tracking angle ranges "
+        f"(Press 'S' to set zero and exit, 'Q' to quit){RESET}\n\n"
     )
 
     # Initialize table display
@@ -281,8 +283,10 @@ async def track_angles(
     display = Display()
     display.set_height(num_motors + 2)
 
-    # Define column widths: Motor(10), Current(12), Min(12), Max(12), Config Range(20), Coverage(12), Target Zero(12)
-    # Alignment: Motor=left, Current/Min/Max/Target Zero=right, Config Range=center, Coverage=right
+    # Define column widths: Motor(10), Current(12), Min(12), Max(12),
+    # Config Range(20), Coverage(12), Target Zero(12)
+    # Alignment: Motor=left, Current/Min/Max/Target Zero=right,
+    # Config Range=center, Coverage=right
     table = TableDisplay(
         display,
         columns_length=[10, 12, 12, 12, 20, 12, 12],
@@ -290,7 +294,9 @@ async def track_angles(
     )
 
     # Set header row (row 0)
-    table.row(0, ["Motor", "Current", "Min", "Max", "Config Range", "Coverage", "Target Zero"])
+    table.row(
+        0, ["Motor", "Current", "Min", "Max", "Config Range", "Coverage", "Target Zero"]
+    )
 
     # Set separator line (row 1) using display.line directly
     display.line(1, "-" * 90)
@@ -320,7 +326,7 @@ async def track_angles(
                 key = check_keyboard_input()
                 if key == "q":
                     break
-                elif key == "s":
+                if key == "s":
                     # Set zero position and exit
                     await set_zero(motors_list, trackers_list)
                     break  # Exit after setting zero
@@ -357,7 +363,10 @@ async def track_angles(
                                 if tracker.max_angle != -inf
                                 else "N/A"
                             )
-                            config_range = f"[{config.min_angle:+.0f}° to {config.max_angle:+.0f}°]"
+                            config_range = (
+                                f"[{config.min_angle:+.0f}° "
+                                f"to {config.max_angle:+.0f}°]"
+                            )
 
                             # Calculate coverage percentage
                             if tracker.min_angle != inf and tracker.max_angle != -inf:
@@ -385,10 +394,20 @@ async def track_angles(
 
                             table.row(
                                 row_idx,
-                                [config.name, current, min_val, max_val, config_range, coverage_str, target_zero_str],
+                                [
+                                    config.name,
+                                    current,
+                                    min_val,
+                                    max_val,
+                                    config_range,
+                                    coverage_str,
+                                    target_zero_str,
+                                ],
                             )
                         else:
-                            table.row(row_idx, [config.name, "No state", "", "", "", "", ""])
+                            table.row(
+                                row_idx, [config.name, "No state", "", "", "", "", ""]
+                            )
                     except Exception:  # noqa: BLE001
                         table.row(row_idx, [config.name, "Error", "", "", "", "", ""])
 
@@ -403,19 +422,15 @@ async def track_angles(
     finally:
         # Restore terminal settings
         if old_settings is not None and HAS_TERMIOS:
-            try:
+            with contextlib.suppress(OSError, termios.error):
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-            except (OSError, termios.error):
-                pass
 
         # Disable all motors for safety
         sys.stdout.write("\nDisabling all motors...\n")
         for motor in motors_list:
             if motor:
-                try:
+                with contextlib.suppress(Exception):
                     await motor.disable()
-                except Exception:  # noqa: BLE001
-                    pass
 
         sys.stdout.write("Angle tracking stopped.\n")
 
@@ -451,7 +466,7 @@ def run() -> None:
     except KeyboardInterrupt:
         sys.stderr.write("\nInterrupted by user.\n")
         sys.exit(0)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"{RED}Error: {e}{RESET}\n")
         sys.exit(1)
 

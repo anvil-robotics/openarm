@@ -4,7 +4,9 @@ import sys
 
 
 class Display:
-    """Manage multi-line terminal display with in-place updates using ANSI cursor control.
+    """Manage multi-line terminal display with in-place updates.
+
+    Uses ANSI cursor control for efficient updates.
 
     This class handles rendering multiple lines in the terminal with efficient
     in-place updates by moving the cursor and clearing lines.
@@ -20,6 +22,7 @@ class Display:
         # Update in-place
         display.line(1, "Updated Row 1")
         display.render()  # Cursor moves up and updates
+
     """
 
     def __init__(self) -> None:
@@ -33,6 +36,7 @@ class Display:
 
         Args:
             height: Number of lines in the display.
+
         """
         self._height = height
         self._lines = [""] * height
@@ -43,6 +47,7 @@ class Display:
         Args:
             n: Line number (0-indexed).
             content: Content to display on this line.
+
         """
         if n < 0 or n >= self._height:
             msg = f"Line {n} out of range (0-{self._height - 1})"
@@ -99,10 +104,14 @@ class TableDisplay:
         table.row(1, ["Item1", "A very long description that will be cut", "123"])
         table.row(2, ["Item2", "Short", "456"])
         display.render()
+
     """
 
     def __init__(
-        self, display: Display, columns_length: list[int], align: list[str] | None = None
+        self,
+        display: Display,
+        columns_length: list[int],
+        align: list[str] | None = None,
     ) -> None:
         """Initialize table display.
 
@@ -111,6 +120,7 @@ class TableDisplay:
             columns_length: List of column widths (in characters).
             align: List of alignment for each column ("left", "right", "center").
                    Defaults to "left" for all columns.
+
         """
         self._display = display
         self._columns_length = columns_length
@@ -122,33 +132,37 @@ class TableDisplay:
         Args:
             n: Row number (0-indexed).
             cells: List of cell contents (one per column).
+
         """
         # Format each cell according to column width and alignment
         formatted_cells = []
-        for i, cell in enumerate(cells):
+        for i, cell_content in enumerate(cells):
             if i < len(self._columns_length):
                 col_width = self._columns_length[i]
                 alignment = self._align[i] if i < len(self._align) else "left"
 
                 # Truncate if cell exceeds column width
-                if len(cell) > col_width:
-                    cell = cell[:col_width]
+                truncated_cell = (
+                    cell_content[:col_width]
+                    if len(cell_content) > col_width
+                    else cell_content
+                )
 
                 # Pad cell to column width based on alignment
                 if alignment == "left":
-                    formatted_cell = cell.ljust(col_width)
+                    formatted_cell = truncated_cell.ljust(col_width)
                 elif alignment == "right":
-                    formatted_cell = cell.rjust(col_width)
+                    formatted_cell = truncated_cell.rjust(col_width)
                 elif alignment == "center":
-                    formatted_cell = cell.center(col_width)
+                    formatted_cell = truncated_cell.center(col_width)
                 else:
                     # Default to left if unknown alignment
-                    formatted_cell = cell.ljust(col_width)
+                    formatted_cell = truncated_cell.ljust(col_width)
 
                 formatted_cells.append(formatted_cell)
             else:
                 # No width defined for this column, use as-is
-                formatted_cells.append(cell)
+                formatted_cells.append(cell_content)
 
         # Join cells into a single line
         line = "".join(formatted_cells)
