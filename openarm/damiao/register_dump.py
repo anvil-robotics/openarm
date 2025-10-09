@@ -15,7 +15,12 @@ from openarm.bus import Bus
 from . import Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
-from .encoding import RegisterAddress
+from .encoding import (
+    RegisterAddress,
+    decode_register_float,
+    decode_register_int,
+    encode_read_register,
+)
 
 # ANSI color codes for terminal output
 RED = "\033[91m"
@@ -102,9 +107,6 @@ async def read_register(
 
     """
     try:
-        # Import encoding functions to read registers directly
-        from .encoding import decode_register_float, decode_register_int, encode_read_register  # noqa: PLC0415
-
         # Send read request
         encode_read_register(motor.bus, motor.slave_id, register)
 
@@ -112,14 +114,13 @@ async def read_register(
         if reg_type == "int":
             value = await decode_register_int(motor.bus, motor.master_id)
             return str(value)
-        else:  # float
-            value = await decode_register_float(motor.bus, motor.master_id)
-            return f"{value:.4f}"
+        value = await decode_register_float(motor.bus, motor.master_id)
+        return f"{value:.4f}"  # noqa: TRY300
     except Exception:  # noqa: BLE001
         return None
 
 
-async def dump_registers_for_bus(
+async def dump_registers_for_bus(  # noqa: C901, PLR0912
     can_bus: can.BusABC, bus_idx: int, total_buses: int
 ) -> None:
     """Dump register values for all motors on a single CAN bus.
@@ -151,7 +152,9 @@ async def dump_registers_for_bus(
     detected_lookup = {info.slave_id: info for info in detected}
 
     # Print detection table
-    sys.stdout.write(f"\n{GREEN}{'Motor':<10}{'Slave ID':<12}{'Master ID':<12}{RESET}\n")
+    sys.stdout.write(
+        f"\n{GREEN}{'Motor':<10}{'Slave ID':<12}{'Master ID':<12}{RESET}\n"
+    )
     sys.stdout.write("-" * 34 + "\n")
 
     config_lookup = {config.slave_id: config for config in MOTOR_CONFIGS}
@@ -204,7 +207,9 @@ async def dump_registers_for_bus(
         return
 
     # Read all registers for all motors
-    register_values: dict[str, dict[str, str]] = {}  # {register_name: {motor_name: value}}
+    register_values: dict[
+        str, dict[str, str]
+    ] = {}  # {register_name: {motor_name: value}}
     register_mode: dict[str, str] = {}  # {register_name: "ro" or "rw"}
 
     for register, (reg_name, reg_type, mode) in REGISTER_INFO.items():
@@ -221,7 +226,7 @@ async def dump_registers_for_bus(
     motor_names = [name for name, _ in motors_data]
 
     # Calculate column widths
-    name_col_width = max(len(reg_name) for reg_name in register_values.keys()) + 2
+    name_col_width = max(len(reg_name) for reg_name in register_values) + 2
     motor_col_width = 15
 
     # Print header
@@ -232,12 +237,12 @@ async def dump_registers_for_bus(
     sys.stdout.write("-" * len(header) + "\n")
 
     # Print each register row with color coding
-    for reg_name in register_values:
+    for reg_name, values in register_values.items():
         # Choose color based on read/write status
         color = BLUE if register_mode[reg_name] == "rw" else ORANGE
         row = f"{color}{reg_name:<{name_col_width}}"
         for motor_name in motor_names:
-            value = register_values[reg_name].get(motor_name, "-")
+            value = values.get(motor_name, "-")
             row += f"{value:>{motor_col_width}}"
         row += RESET
         sys.stdout.write(f"{row}\n")
@@ -246,7 +251,7 @@ async def dump_registers_for_bus(
 
 
 async def main(args: argparse.Namespace) -> None:
-    """Main function to dump registers from all buses.
+    """Dump registers from all buses.
 
     Args:
         args: Command-line arguments
