@@ -46,9 +46,7 @@ class Bus:
         """
         queue = self.lookup[arbitration_id]
         if len(queue) > 0:
-            while len(queue) > 0:
-                r = queue.pop(0)
-            return r
+            return queue.pop(0)
 
         if timeout is None:
             while True:
