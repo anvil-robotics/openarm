@@ -154,7 +154,9 @@ python -m openarm.damiao disable --motor-type DM4310 --iface follower_l 1 1
 
 Reads all configuration registers from all motors on all busses
 
-(coming soon)
+```bash
+python -m openarm.damiao.register_dump
+```
 
 ## Running Anvil's Experimental Demos
 
