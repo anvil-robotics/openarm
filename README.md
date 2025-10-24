@@ -103,11 +103,11 @@ Low-level control of individual motors for testing and debugging:
 python -m openarm.damiao enable --motor-type DM4310 --iface can0 1 1
 
 # Set MIT Mode and Command motor with MIT parameters
-python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 2
+python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 1
 python -m openarm.damiao control mit --motor-type DM4310 --iface can0 1 1 50 0.3 0 0 0  # kp kd q dq tau
 
 # Set PosVel control mode and Command motor with PosVel command
-python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 1
+python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 1 1 1.57 2.0  # position(rad) velocity(rad/s)
 
 # Get motor status
