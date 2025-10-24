@@ -14,11 +14,12 @@ More information about Anvil Robotics is available at **https://anvil.bot/**
 - Ubuntu 24.04 LTS
 - An Anvil OpenArm Leader or Follower ([See Anvil Store](https://shop.anvil.bot/)), fully assembled and wired ([see Anvil's hardware assembly guide](https://www.notion.so/anvil-robotics/Anvil-s-OpenArm-Getting-Started-2025Q4-HW-Batch-2948f2efe5658066bac0daa9de065f54)).
 
-*(While the code will likely run on other platforms, your mileage may vary)*
+_(While the code will likely run on other platforms, your mileage may vary)_
 
 ## Setup
 
 ### Getting the Code
+
 ```bash
 git clone https://github.com/anvil-robotics/openarm.git
 cd openarm
@@ -28,7 +29,9 @@ cd openarm
 ```
 
 ### Setting up the SW Environment
-#### Option 1: Setting up a Python Virtual Environment (recommended) ####
+
+#### Option 1: Setting up a Python Virtual Environment (recommended)
+
 Install Python virtual environment with:
 
 ```bash
@@ -54,15 +57,16 @@ Each time you open a new terminal, navigate to inside the `openarm` directory an
 > source .venv/bin/activate
 > ```
 
+#### Option 2: Using VSCode+DevContainer
 
-#### Option 2: Using VSCode+DevContainer ####
 If you are already familiar [VSCode and devcontainers](https://code.visualstudio.com/docs/devcontainers/containers), you can simply open the cloned openarm folder and VSCode will detect the [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) file.
 
-
 ### Configuring USB-CAN Devices (udev rules)
+
 Each OpenArm uses 2x [Canable-style](https://canable.io/) USB-to-CAN devices (one for the left arm and one for the right arm). Each device is pre-flashed with [Candlelight firmware](https://github.com/normaldotcom/candleLight_fw). These devices are automatically detected and enumerated by the Linux host when plugged in. But, by default, the device's name that shows up in Linux depends on the order in which devices are plugged in & detected by the host. So, without any additional setup, it becomes extremely easy to accidentally swap commands between the left and right arms.
 
-#### Option 1: Script-Guided udev setup (recommended) ####
+#### Option 1: Script-Guided udev setup (recommended)
+
 Download and run this setup script to assign persistent names to the USB-CAN devices (based on their unique serial numbers) and bring them online automatically:
 
 ```bash
@@ -76,6 +80,7 @@ sudo bash setup_can.sh robot_l robot_r
 The script will guide you through plugging in four (or two) USB-CAN devices: two for the leader arms and two for the follower arms. Each argument corresponds resulting device names, and the order they are should be connected.
 
 #### Option 2: Manual udev setup
+
 For more complex or especially unique setups, you can manually create & install your own udev rules. There are lots of online resources describing udev, and i2rt has an [example](https://github.com/i2rt-robotics/i2rt/blob/main/doc/set_persist_id_socket_can.md) of what this could look like as well.
 
 ## Verify That The Hardware is Operational
@@ -146,6 +151,7 @@ python -m openarm.damiao disable --motor-type DM4310 --iface follower_l 1 1
 - `save`: Save parameters to flash memory
 
 ### Register Dump
+
 Reads all configuration registers from all motors on all busses
 
 (coming soon)
@@ -195,16 +201,16 @@ For more information: `python -m openarm.damiao.monitor --help`
 - `-g, --gravity`: Enable gravity compensation for master arms
 - `-v, --velocity SPEED`: Velocity for slave motors (default: 1.0)
 
-
 ## Running Enactic's OpenArm Demos
+
 The Enactic team has released several repositories and demos that work on the open arm. You can follow our guide for building and running the Enactic's software ([Using Enactic's Stack](enactic.md)), or you can refer directly to the Enactic GitHub (https://github.com/enactic/openarm).
 
-*Please note that Enactic is unaffiliated with Anvil Robotics.*
+_Please note that Enactic is unaffiliated with Anvil Robotics._
 
 ## ☠️ Danger-Zone - Changing the Motor Configurations ☠️
 
 > [!CAUTION]
-> *The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host.*
+> _The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host._
 
 ### Motor Configuration
 
