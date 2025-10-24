@@ -195,7 +195,7 @@ The Enactic team has released several repositories and demos that work on the op
 ## ☠️ Danger-Zone - Changing the Motor Configurations ☠️
 
 > [!CAUTION]
-> The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host.
+> *The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host.*
 
 ### Motor Configuration
 
