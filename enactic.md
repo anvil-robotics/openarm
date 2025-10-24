@@ -86,11 +86,13 @@ Alternatively, you can generate the URDF file by following the [official guide](
 Navigate to the `openarm_teleop` directory. You'll need **two terminals** to run both arms simultaneously.
 
 **Terminal 1** - Left leader arm:
+
 ```bash
 build/gravity_comp left_arm leader_l openarm_bimanual.urdf
 ```
 
 **Terminal 2** - Right leader arm:
+
 ```bash
 build/gravity_comp right_arm leader_r openarm_bimanual.urdf
 ```
@@ -104,11 +106,13 @@ For more information: `build/gravity_comp --help`
 Navigate to the `openarm_teleop` directory. You'll need **two terminals** to control both arm pairs simultaneously.
 
 **Terminal 1** - Left arm pair:
+
 ```bash
 build/bilateral_control openarm_bimanual.urdf openarm_bimanual.urdf left_arm leader_l follower_l
 ```
 
 **Terminal 2** - Right arm pair:
+
 ```bash
 build/bilateral_control openarm_bimanual.urdf openarm_bimanual.urdf right_arm leader_r follower_r
 ```
