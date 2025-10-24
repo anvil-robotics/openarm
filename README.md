@@ -1,10 +1,12 @@
-# Anvil's OpenArm Experimental Testing Tools
+# Anvil Robotics's OpenArm Experimental Testing Tools
 
-This repository contains a variety of python scripts and debugging tools for validating Anvil's OpenArm hardware platform. Please note that this code is very experimental.
+This repository contains a variety of python scripts and debugging tools for validating Anvil Robotics's OpenArm hardware platform. Please note that this code is very experimental.
 
 As this code is still experimental, there will be breaking changes, and is not meant for production use cases.
 
-For commercial use cases and customers, Anvil Robotics is developing a high performance robot control and human demonstration data collection suite (early-access in Dec 2025). Feel free to reach out to `<tbd>@anvil.bot`, if you're interested.
+For commercial use cases and customers, Anvil Robotics is developing a high performance robot control and human demonstration data collection hardware system & software suite (early-access to select customers in Dec 2025). Feel free to reach out to Anvil Robotics, if you're interested.
+
+More information about Anvil Robotics is available at **https://anvil.bot/**
 
 ## Prerequisites
 
