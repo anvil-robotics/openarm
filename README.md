@@ -18,10 +18,10 @@ For commercial use cases and customers, Anvil Robotics is developing a high perf
 
 ### Getting the Code
 ```bash
-git https://github.com/anvil-robotics/openarm.git
+git clone https://github.com/anvil-robotics/openarm.git
 cd openarm
 # <or>
-git git@github.com:anvil-robotics/openarm.git
+git clone git@github.com:anvil-robotics/openarm.git
 cd openarm
 ```
 
