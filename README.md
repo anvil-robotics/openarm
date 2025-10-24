@@ -78,11 +78,18 @@ The script will guide you through plugging in four (or two) USB-CAN devices: two
 #### Option 2: Manual udev setup
 For more complex or especially unique setups, you can manually create & install your own udev rules. There are lots of online resources describing udev, and i2rt has an [example](https://github.com/i2rt-robotics/i2rt/blob/main/doc/set_persist_id_socket_can.md) of what this could look like as well.
 
-## Running Anvil's Experimental Tools
+## Verify That The Hardware is Operational
 
-### Individually Testing Every Motor (Hello World)
+Follow the instructions validate in the following file:
+[motor-testing.md](motor-testing.md).
 
-The following instructions validate that every motor is functional and communicating as expected: See [motor-testing.md](motor-testing.md).
+Ensure that every motor on every arm is moving as expected.
+
+**Congratulations! Your Anvil Robotics's OpenArm hardware is now fully verified as being operational.**
+
+You are welcome to now try running your own code on the robot, or try any of the additional tools and demos shared below.
+
+## Additional Experimental Tools
 
 ### Motor Monitoring
 
