@@ -18,10 +18,10 @@ For commercial use cases and customers, Anvil Robotics is developing a high perf
 
 ### Getting the Code
 ```bash
-git https://github.com/anvil-robotics/openarm.git
+git clone https://github.com/anvil-robotics/openarm.git
 cd openarm
 # <or>
-git git@github.com:anvil-robotics/openarm.git
+git clone git@github.com:anvil-robotics/openarm.git
 cd openarm
 ```
 
@@ -100,24 +100,24 @@ Low-level control of individual motors for testing and debugging:
 
 ```bash
 # Enable a motor
-python -m openarm.damiao enable --motor-type DM4310 --iface can0 1 1
+python -m openarm.damiao enable --motor-type DM4310 --iface follower_l 1 1
 
 # Set MIT Mode and Command motor with MIT parameters
-python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 1
-python -m openarm.damiao control mit --motor-type DM4310 --iface can0 1 1 50 0.3 0 0 0  # kp kd q dq tau
+python -m openarm.damiao param set --motor-type DM8009 --iface follower_l 1 17 control_mode 1
+python -m openarm.damiao control mit --motor-type DM4310 --iface follower_l 1 1 50 0.3 0 0 0  # kp kd q dq tau
 
 # Set PosVel control mode and Command motor with PosVel command
-python -m openarm.damiao param set --motor-type DM8009 --iface can0 1 17 control_mode 2
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 1 1 1.57 2.0  # position(rad) velocity(rad/s)
+python -m openarm.damiao param set --motor-type DM8009 --iface follower_l 1 17 control_mode 2
+python -m openarm.damiao control pos_vel --motor-type DM4310 --iface follower_l 1 1 1.57 2.0  # position(rad) velocity(rad/s)
 
 # Get motor status
-python -m openarm.damiao refresh --motor-type DM4310 --iface can0 1 1
+python -m openarm.damiao refresh --motor-type DM4310 --iface follower_l 1 1
 
 # Get motor parameters
-python -m openarm.damiao param get --motor-type DM4310 --iface can0 1 1 over_voltage
+python -m openarm.damiao param get --motor-type DM4310 --iface follower_l 1 1 over_voltage
 
 # Disable motor safely
-python -m openarm.damiao disable --motor-type DM4310 --iface can0 1 1
+python -m openarm.damiao disable --motor-type DM4310 --iface follower_l 1 1
 ```
 
 **Common Arguments:**
@@ -193,7 +193,9 @@ The Enactic team has released several repositories and demos that work on the op
 *Please note that Enactic is unaffiliated with Anvil Robotics.*
 
 ## ☠️ Danger-Zone - Changing the Motor Configurations ☠️
-*The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host.*
+
+> [!CAUTION]
+> *The following tools can flash new configuration parameters to motors. Doing any of the following may result in the motors no longer being able to effectively communicate with the linux host.*
 
 ### Motor Configuration
 
