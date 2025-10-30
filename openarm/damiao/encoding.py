@@ -22,6 +22,20 @@ class ControlMode(IntEnum):
     TORQUE_POS = 4
 
 
+class MotorStatus(IntEnum):
+    """Enumeration of Damiao motor status codes."""
+
+    DISABLED = 0x0  # Disabled
+    ENABLED = 0x1  # Enabled
+    OVERVOLTAGE = 0x8  # Overvoltage
+    UNDERVOLTAGE = 0x9  # Undervoltage
+    OVERCURRENT = 0xA  # Overcurrent
+    MOS_OVERTEMPERATURE = 0xB  # MOS overtemperature
+    MOTOR_COIL_OVERTEMPERATURE = 0xC  # Motor coil overtemperature
+    COMMUNICATION_LOSS = 0xD  # Communication loss
+    OVERLOAD = 0xE  # Overload
+
+
 class RegisterAddress(IntEnum):
     """Enumeration of Damiao motor register addresses.
 
@@ -160,6 +174,7 @@ class MotorState:
     Reference: DM_CAN.py MotorState structure and recv_data function
     """
 
+    status: MotorStatus  # Motor status (4 bits)
     slave_id: int  # Motor slave ID that responded
     position: float  # Motor position in radians
     velocity: float  # Motor velocity in radians/second
@@ -338,15 +353,27 @@ async def decode_motor_state(
     message = bus.recv(master_id, timeout=0.1)
 
     # Unpack motor state response data according to protocol format
-    # Format: '>BHHBB' = big-endian: slave_id(B) + packed_data(2*H) + temps(2*B)
-    # Reference: Motor state format in DM_CAN.py __process_packet CMD==0x11 handling
-    slave_id, word1, word2, t_mos, t_rotor = struct.unpack(">BHHBB", message.data[:7])
+    # Format: ID|ERR<<4 | POS[15:0] | VEL[11:4] | VEL[3:0]|T[11:8] | T[7:0] |
+    # T_MOS | T_Rotor
+    # Format: '>BHBBBB' = big-endian: byte0(B) + position(H) + 4 bytes + temps(2*B)
+    # Total: 8 bytes
+    byte0, q_uint, vel_h, vel_t, torque_l, t_mos, t_rotor = struct.unpack(
+        ">BHBBBBB", message.data[:8]
+    )
 
-    # Extract packed motor state values using bit operations
-    # Reference: DM_CAN.py __process_packet lines 264-266 bit unpacking
-    q_uint = word1  # position: full 16 bits
-    dq_uint = (word2 >> 4) & 0xFFF  # velocity: high 12 bits
-    tau_uint = ((word2 & 0xF) << 8) | (message.data[5] & 0xFF)  # torque: low 4 bits
+    # Byte 0: ID | ERR<<4
+    slave_id = byte0 & 0xF  # Low 4 bits for slave_id
+    status = (byte0 >> 4) & 0xF  # High 4 bits for status/error
+
+    # Bytes 3-4: Velocity (12 bits total)
+    # Byte 3: VEL[11:4] (high 8 bits)
+    # Byte 4 high nibble: VEL[3:0] (low 4 bits)
+    dq_uint = (vel_h << 4) | ((vel_t >> 4) & 0xF)
+
+    # Bytes 4-5: Torque (12 bits total)
+    # Byte 4 low nibble: T[11:8] (high 4 bits)
+    # Byte 5: T[7:0] (low 8 bits)
+    tau_uint = ((vel_t & 0xF) << 8) | torque_l
 
     # Get motor limits for scaling back to engineering units
     # Reference: DM_CAN.py uint_to_float function calls in __process_packet
@@ -363,6 +390,7 @@ async def decode_motor_state(
     torque = _uint_to_float(tau_uint, -tau_max, tau_max, 12)
 
     return MotorState(
+        status=status,
         slave_id=slave_id,
         position=position,
         velocity=velocity,

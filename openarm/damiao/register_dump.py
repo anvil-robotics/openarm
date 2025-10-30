@@ -16,11 +16,15 @@ from . import Motor
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
 from .encoding import (
+    MotorStatus,
     RegisterAddress,
+    decode_motor_state,
     decode_register_float,
     decode_register_int,
     encode_read_register,
+    encode_refresh_status,
 )
+from .motor import MOTOR_LIMITS
 
 # ANSI color codes for terminal output
 RED = "\033[91m"
@@ -120,6 +124,38 @@ async def read_register(
         return None
 
 
+def format_motor_status(status: MotorStatus) -> str:
+    """Format motor status with color coding.
+
+    Args:
+        status: Motor status enum value
+
+    Returns:
+        Formatted string with ANSI color codes
+
+    """
+    try:
+        status_enum = MotorStatus(status)
+        if status_enum == MotorStatus.ENABLED:
+            return f"{GREEN}0x{status:X}:ENABLED{RESET}"
+        if status_enum == MotorStatus.DISABLED:
+            return f"0x{status:X}:DISABLED"
+        # Error states - show in red
+        status_names = {
+            MotorStatus.OVERVOLTAGE: "OVERVOLT",
+            MotorStatus.UNDERVOLTAGE: "UNDERVOLT",
+            MotorStatus.OVERCURRENT: "OVERCURR",
+            MotorStatus.MOS_OVERTEMPERATURE: "MOS_TEMP",
+            MotorStatus.MOTOR_COIL_OVERTEMPERATURE: "COIL_TEMP",
+            MotorStatus.COMMUNICATION_LOSS: "COMM_LOSS",
+            MotorStatus.OVERLOAD: "OVERLOAD",
+        }
+        name = status_names.get(status_enum, "ERROR")
+        return f"{RED}0x{status:X}:{name}{RESET}"  # noqa: TRY300
+    except ValueError:
+        return f"{YELLOW}0x{status:X}:UNKNOWN{RESET}"
+
+
 async def dump_registers_for_bus(  # noqa: C901, PLR0912
     can_bus: can.BusABC, bus_idx: int, total_buses: int
 ) -> None:
@@ -205,6 +241,47 @@ async def dump_registers_for_bus(  # noqa: C901, PLR0912
             f"{YELLOW}No motors with matching configuration found{RESET}\n"
         )
         return
+
+    # Read motor states first
+    sys.stdout.write(f"\n{GREEN}Motor State{RESET}\n")
+    sys.stdout.write("-" * 80 + "\n")
+
+    motor_states = {}
+    for motor_name, motor in motors_data:
+        try:
+            encode_refresh_status(motor.bus, motor.slave_id)
+            motor_limits = MOTOR_LIMITS[motor.motor_type]
+            state = await decode_motor_state(motor.bus, motor.master_id, motor_limits)
+            motor_states[motor_name] = state
+        except Exception:  # noqa: BLE001
+            motor_states[motor_name] = None
+
+    # Print motor state table
+    state_header = (
+        f"{'Motor':<12}{'Status':<18}{'Position':<12}{'Velocity':<12}"
+        f"{'Torque':<10}{'T_MOS':<8}{'T_Rotor':<8}"
+    )
+    sys.stdout.write(f"{GREEN}{state_header}{RESET}\n")
+    sys.stdout.write("-" * len(state_header) + "\n")
+
+    for motor_name in [name for name, _ in motors_data]:
+        state = motor_states.get(motor_name)
+        if state:
+            status_str = format_motor_status(state.status)
+            pos_deg = state.position * 180 / 3.14159265359  # Convert to degrees
+            row = (
+                f"{motor_name:<12}{status_str:<16}"
+                f"{pos_deg:>10.2f}°  "
+                f"{state.velocity:>10.2f}  "
+                f"{state.torque:>8.2f}Nm"
+                f"{state.temp_mos:>6}°C"
+                f"{state.temp_rotor:>7}°C"
+            )
+            sys.stdout.write(f"{row}\n")
+        else:
+            sys.stdout.write(f"{motor_name:<12}{RED}Failed to read state{RESET}\n")
+
+    sys.stdout.write("\n")
 
     # Read all registers for all motors
     register_values: dict[
