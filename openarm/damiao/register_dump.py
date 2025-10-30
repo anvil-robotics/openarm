@@ -258,7 +258,7 @@ async def dump_registers_for_bus(  # noqa: C901, PLR0912
 
     # Print motor state table
     state_header = (
-        f"{'Motor':<12}{'Status':<20}{'Position':<12}{'Velocity':<12}"
+        f"{'Motor':<12}{'Status':<18}{'Position':<12}{'Velocity':<12}"
         f"{'Torque':<10}{'T_MOS':<8}{'T_Rotor':<8}"
     )
     sys.stdout.write(f"{GREEN}{state_header}{RESET}\n")
@@ -270,7 +270,7 @@ async def dump_registers_for_bus(  # noqa: C901, PLR0912
             status_str = format_motor_status(state.status)
             pos_deg = state.position * 180 / 3.14159265359  # Convert to degrees
             row = (
-                f"{motor_name:<12}{status_str:<30}"
+                f"{motor_name:<12}{status_str:<16}"
                 f"{pos_deg:>10.2f}°  "
                 f"{state.velocity:>10.2f}  "
                 f"{state.torque:>8.2f}Nm"
