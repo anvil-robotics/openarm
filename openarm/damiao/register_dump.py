@@ -24,6 +24,7 @@ from .encoding import (
     encode_read_register,
     encode_refresh_status,
 )
+from .motor import MOTOR_LIMITS
 
 # ANSI color codes for terminal output
 RED = "\033[91m"
@@ -249,9 +250,8 @@ async def dump_registers_for_bus(  # noqa: C901, PLR0912
     for motor_name, motor in motors_data:
         try:
             encode_refresh_status(motor.bus, motor.slave_id)
-            state = await decode_motor_state(
-                motor.bus, motor.master_id, motor.motor_limits
-            )
+            motor_limits = MOTOR_LIMITS[motor.motor_type]
+            state = await decode_motor_state(motor.bus, motor.master_id, motor_limits)
             motor_states[motor_name] = state
         except Exception:  # noqa: BLE001
             motor_states[motor_name] = None
