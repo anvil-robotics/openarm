@@ -113,90 +113,17 @@ python -m openarm.damiao.monitor --interface can1
 
 ### Angle Range Tracking & Calibration
 
-Track the full range of motion for each motor and automatically set zero positions based on the observed range. This tool provides an interactive display with real-time feedback on calibration progress.
+Track motor angle ranges and automatically set zero positions based on observed range:
 
 ```bash
 # Track angle ranges for left arm
-damiao-track-range --channel can0 --side left
+damiao-set-zero-limit --channel can0 --side left
 
 # Track angle ranges for right arm
-damiao-track-range --channel can1 --side right
-
-# With custom interface
-damiao-track-range --channel can0 --side left --interface socketcan
+damiao-set-zero-limit --channel can1 --side right
 ```
 
-**Interactive Display Columns:**
-
-- **Motor**: Joint name (J1-J8)
-- **Target Zero**: Where zero position will be set (red if >10° from current)
-- **Current**: Current motor angle
-- **Min/Max**: Observed minimum and maximum angles during session
-- **Config Min/Max**: Expected angle range from configuration
-- **Coverage**: Percentage of expected range covered
-  - Green: 98-102% (optimal)
-  - Yellow: <98% (need more coverage)
-  - Red: >102% (exceeded expected range)
-- **Status**: Instructions for next steps
-  - "Cover more angles" - Move motor through more of its range
-  - "Move near zero" - Position motor close to target zero position
-  - "Ready" - Motor is ready for zero calibration
-
-**Interactive Controls:**
-
-- Press **'S'** to set zero position for all motors based on tracked ranges
-- Press **'Q'** to quit without setting zero
-
-**Arguments:**
-
-- `--channel`, `-c`: CAN channel (required, e.g., can0, can1)
-- `--side`, `-s`: Arm side (required, choices: left, right)
-- `--interface`, `-i`: CAN interface type (default: socketcan)
-
-**Notes:**
-
-- Motors run in passive MIT control mode (zero torque) for safe manual manipulation
-- Move each motor through its full range of motion while watching the coverage percentage
-- Once all motors show "Ready" status, press 'S' to automatically set zero positions
-- The tool calculates the appropriate zero position based on the configured angle ranges
-
-### Motor Register Inspection
-
-Dump and compare all motor registers across detected motors for debugging and configuration verification.
-
-```bash
-# Dump registers for all motors on can0
-damiao-register-dump --channel can0
-
-# With custom interface
-damiao-register-dump --channel can0 --interface socketcan
-```
-
-**Display Tables:**
-
-1. **Motor Detection Table**: Shows which motors are detected and their IDs
-   - Green checkmark: Motor detected and configured correctly
-   - Red X: Motor not detected or master ID mismatch
-
-2. **Register Values Table**: 54 registers × 8 motors
-   - Rows: Register names (e.g., `under_voltage`, `over_voltage`, `max_speed`)
-   - Columns: Motor names (J1-J8)
-   - Cells: Register values
-   - Color coding:
-     - Blue rows: Writable registers
-     - Orange rows: Readonly registers
-
-**Arguments:**
-
-- `--channel`: CAN channel (required, e.g., can0, can1)
-- `--interface`: CAN interface type (default: socketcan)
-
-**Use Cases:**
-
-- Verify motor configuration consistency across all joints
-- Debug motor parameter issues
-- Compare settings between different motors
-- Document current motor configurations
+Move each motor through its full range of motion, then press 'S' to set zero positions.
 
 ### Direct Motor Control
 
