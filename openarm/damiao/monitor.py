@@ -32,10 +32,11 @@ import can
 
 from openarm.bus import Bus
 
-from . import ControlMode, MitControlParams, Motor, PosVelControlParams
 from .config import MOTOR_CONFIGS
 from .detect import detect_motors
+from .encoding import ControlMode, MitControlParams, PosVelControlParams
 from .gravity import GravityCompensator
+from .motor import Motor
 
 # ANSI color codes for terminal output
 RED = "\033[91m"

@@ -9,9 +9,9 @@ description = "A Python package for robotic arm control and automation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "python-can",
+  "python-can>=4.6.1",
   "ikpy>=3.4.2",
-  "mujoco>=3.3.5",
+  "mujoco>=3.3.7",
 ]
 
 [project.scripts]

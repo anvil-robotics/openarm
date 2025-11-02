@@ -35,16 +35,15 @@ from typing import Any
 
 from openarm.bus import Bus
 
-from . import (
+from .encoding import (
     ControlMode,
     MitControlParams,
-    Motor,
     MotorState,
-    MotorType,
     PosForceControlParams,
     PosVelControlParams,
     VelControlParams,
 )
+from .motor import Motor, MotorType
 
 
 def _output_motor_state(state: MotorState, slave_id: int) -> None:
