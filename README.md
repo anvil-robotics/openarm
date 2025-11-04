@@ -67,14 +67,13 @@ Each OpenArm uses 2x [Canable-style](https://canable.io/) USB-to-CAN devices (on
 
 #### Option 1: Script-Guided udev setup (recommended)
 
-Download and run this setup script to assign persistent names to the USB-CAN devices (based on their unique serial numbers) and bring them online automatically:
+Run this setup script to assign persistent names to the USB-CAN devices (based on their unique serial numbers) and bring them online automatically:
 
 ```bash
-curl -L -o setup_can.sh https://gist.githubusercontent.com/threeal/f9e982150d3a1836c71b274561044549/raw/ba15c387c4c75565370f6739bcaa25ba8bddfa9a/setup_can.sh
 # Run the following, if you are connecting a leader+follower pair
-sudo bash setup_can.sh leader_l leader_r follower_l follower_r
+sudo bash scripts/setup_can.sh leader_l leader_r follower_l follower_r
 # Run the following, if you are connecting a single robot
-sudo bash setup_can.sh robot_l robot_r
+sudo bash scripts/setup_can.sh robot_l robot_r
 ```
 
 The script will guide you through plugging in four (or two) USB-CAN devices: two for the leader arms and two for the follower arms. Each argument corresponds resulting device names, and the order they are should be connected.
