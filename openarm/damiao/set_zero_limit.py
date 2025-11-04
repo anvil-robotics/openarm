@@ -114,13 +114,14 @@ def target_angle(
 async def set_zero(
     motors_list: list[Motor | None],
     trackers_list: list[AngleTracker | None],
+    motor_configs: list,
     side: str,
 ) -> None:
     """Set zero position for all motors based on tracked ranges."""
     sys.stdout.write(f"\r\n{CYAN}Setting zero position for all motors...{RESET}\r\n")
 
     for motor, tracker, config in zip(
-        motors_list, trackers_list, MOTOR_CONFIGS, strict=False
+        motors_list, trackers_list, motor_configs, strict=False
     ):
         if motor is None or tracker is None:
             continue
@@ -187,16 +188,27 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     try:
-        return await _main(can_bus, args.side)
+        return await _main(can_bus, args.side, args.motors)
     finally:
         can_bus.shutdown()
 
 
-async def _main(can_bus: can.BusABC, side: str) -> None:
+async def _main(
+    can_bus: can.BusABC, side: str, selected_motors: list[str] | None
+) -> None:
     """Process motors on the bus and track angle ranges."""
+    # Filter motor configs based on selection
+    if selected_motors:
+        motor_configs = [c for c in MOTOR_CONFIGS if c.name in selected_motors]
+        motors_str = ", ".join(selected_motors)
+        sys.stdout.write(f"\r\n{CYAN}Tracking selected motors: {motors_str}{RESET}\r\n")
+    else:
+        motor_configs = MOTOR_CONFIGS
+        sys.stdout.write(f"\r\n{CYAN}Tracking all motors (J1-J8){RESET}\r\n")
+
     # Detect motors on the bus
-    sys.stdout.write(f"\r\n{CYAN}Scanning for motors...{RESET}\r\n")
-    slave_ids = [config.slave_id for config in MOTOR_CONFIGS]
+    sys.stdout.write(f"{CYAN}Scanning for motors...{RESET}\r\n")
+    slave_ids = [config.slave_id for config in motor_configs]
 
     # Detect motors using raw CAN bus
     detected = list(detect_motors(can_bus, slave_ids, timeout=0.1))
@@ -211,7 +223,7 @@ async def _main(can_bus: can.BusABC, side: str) -> None:
     trackers_list = []
     has_missing_motor = False
 
-    for config in MOTOR_CONFIGS:
+    for config in motor_configs:
         if config.slave_id not in detected_lookup:
             # Motor is not detected
             sys.stderr.write(
@@ -279,12 +291,13 @@ async def _main(can_bus: can.BusABC, side: str) -> None:
                 sys.stderr.write(f"{RED}Error enabling motor: {e}{RESET}\n")
 
     # Start angle tracking
-    await track_angles(motors_list, trackers_list, side)
+    await track_angles(motors_list, trackers_list, motor_configs, side)
 
 
 async def track_angles(  # noqa: C901, PLR0912
     motors_list: list[Motor | None],
     trackers_list: list[AngleTracker | None],
+    motor_configs: list,
     side: str,
 ) -> None:
     """Track angle ranges for all motors continuously."""
@@ -294,7 +307,7 @@ async def track_angles(  # noqa: C901, PLR0912
     )
 
     # Initialize table display
-    num_motors = len(MOTOR_CONFIGS)
+    num_motors = len(motor_configs)
     # +2 for header and separator line
     display = Display()
     display.set_height(num_motors + 2)
@@ -338,7 +351,7 @@ async def track_angles(  # noqa: C901, PLR0912
     display.line(1, "-" * 124)
 
     # Set initial data lines (starting from row 2)
-    for idx, config in enumerate(MOTOR_CONFIGS):
+    for idx, config in enumerate(motor_configs):
         table.row(idx + 2, [config.name, "", "Initializing...", "", "", "", "", "", ""])
 
     # Render initial table
@@ -364,11 +377,11 @@ async def track_angles(  # noqa: C901, PLR0912
                     break
                 if key == "s":
                     # Set zero position and exit
-                    await set_zero(motors_list, trackers_list, side)
+                    await set_zero(motors_list, trackers_list, motor_configs, side)
                     break  # Exit after setting zero
 
             # Update and display each motor's angles
-            for motor_idx, config in enumerate(MOTOR_CONFIGS):
+            for motor_idx, config in enumerate(motor_configs):
                 motor = motors_list[motor_idx]
                 tracker = trackers_list[motor_idx]
 
@@ -548,7 +561,33 @@ def parse_arguments() -> argparse.Namespace:
         help="Arm side (left or right)",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--motors",
+        "-m",
+        type=str,
+        help=(
+            "Comma-separated list of motors to track (e.g., J1,J2,J4). "
+            "Default: all motors (J1-J8)"
+        ),
+    )
+
+    args = parser.parse_args()
+
+    # Validate motor names if provided
+    if args.motors:
+        valid_motors = {config.name for config in MOTOR_CONFIGS}
+        requested_motors = [m.strip().upper() for m in args.motors.split(",")]
+        invalid_motors = [m for m in requested_motors if m not in valid_motors]
+        if invalid_motors:
+            parser.error(
+                f"Invalid motor names: {', '.join(invalid_motors)}. "
+                f"Valid options: {', '.join(sorted(valid_motors))}"
+            )
+        args.motors = requested_motors
+    else:
+        args.motors = None
+
+    return args
 
 
 def run() -> None:
