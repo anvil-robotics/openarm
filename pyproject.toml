@@ -16,6 +16,8 @@ dependencies = [
 
 [project.scripts]
 damiao = "openarm.damiao.__main__:_main"
+damiao-set-zero-limit = "openarm.damiao.set_zero_limit:run"
+damiao-register-dump = "openarm.damiao.register_dump:run"
 
 [tool.setuptools.packages.find]
 where = ["."]
