@@ -67,305 +67,346 @@ def _create_bus(iface: str) -> Bus:
 async def _enable(args: argparse.Namespace) -> None:
     """Enable motor using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    state = await motor.enable()
+        state = await motor.enable()
 
-    sys.stdout.write(f"Motor {args.slave_id} enabled successfully\n")
-    _output_motor_state(state, args.slave_id)
+        sys.stdout.write(f"Motor {args.slave_id} enabled successfully\n")
+        _output_motor_state(state, args.slave_id)
+    finally:
+        bus.bus.shutdown()
 
 
 async def _disable(args: argparse.Namespace) -> None:
     """Disable motor using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    state = await motor.disable()
+        state = await motor.disable()
 
-    sys.stdout.write(f"Motor {args.slave_id} disabled successfully\n")
-    _output_motor_state(state, args.slave_id)
+        sys.stdout.write(f"Motor {args.slave_id} disabled successfully\n")
+        _output_motor_state(state, args.slave_id)
+    finally:
+        bus.bus.shutdown()
 
 
 async def _set_zero(args: argparse.Namespace) -> None:
     """Set motor zero position using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    state = await motor.set_zero_position()
+        state = await motor.set_zero_position()
 
-    sys.stdout.write(f"Zero position set for motor {args.slave_id}\n")
-    _output_motor_state(state, args.slave_id)
+        sys.stdout.write(f"Zero position set for motor {args.slave_id}\n")
+        _output_motor_state(state, args.slave_id)
+    finally:
+        bus.bus.shutdown()
 
 
 async def _refresh(args: argparse.Namespace) -> None:
     """Refresh motor status using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    state = await motor.refresh_status()
-    _output_motor_state(state, args.slave_id)
+        state = await motor.refresh_status()
+        _output_motor_state(state, args.slave_id)
+    finally:
+        bus.bus.shutdown()
 
 
 async def _control_mit(args: argparse.Namespace) -> None:
     """Control motor in MIT mode using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    params = MitControlParams(
-        kp=args.kp,
-        kd=args.kd,
-        q=args.q,
-        dq=args.dq,
-        tau=args.tau,
-    )
+        params = MitControlParams(
+            kp=args.kp,
+            kd=args.kd,
+            q=args.q,
+            dq=args.dq,
+            tau=args.tau,
+        )
 
-    state = await motor.control_mit(params)
+        state = await motor.control_mit(params)
 
-    sys.stdout.write(f"MIT control sent to motor {args.slave_id}\n")
-    sys.stdout.write(
-        f"Response - Position: {state.position:.6f}, "
-        f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}\n"
-    )
+        sys.stdout.write(f"MIT control sent to motor {args.slave_id}\n")
+        sys.stdout.write(
+            f"Response - Position: {state.position:.6f}, "
+            f"Velocity: {state.velocity:.6f}, "
+            f"Torque: {state.torque:.6f}\n"
+        )
+    finally:
+        bus.bus.shutdown()
 
 
 async def _control_pos_vel(args: argparse.Namespace) -> None:
     """Control motor in position/velocity mode using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    params = PosVelControlParams(position=args.pos, velocity=args.vel)
-    state = await motor.control_pos_vel(params)
+        params = PosVelControlParams(position=args.pos, velocity=args.vel)
+        state = await motor.control_pos_vel(params)
 
-    sys.stdout.write(f"Position/velocity control sent to motor {args.slave_id}\n")
-    sys.stdout.write(
-        f"Response - Position: {state.position:.6f}, "
-        f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}\n"
-    )
+        sys.stdout.write(f"Position/velocity control sent to motor {args.slave_id}\n")
+        sys.stdout.write(
+            f"Response - Position: {state.position:.6f}, "
+            f"Velocity: {state.velocity:.6f}, "
+            f"Torque: {state.torque:.6f}\n"
+        )
+    finally:
+        bus.bus.shutdown()
 
 
 async def _control_vel(args: argparse.Namespace) -> None:
     """Control motor in velocity mode using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    params = VelControlParams(velocity=args.vel)
-    state = await motor.control_vel(params)
+        params = VelControlParams(velocity=args.vel)
+        state = await motor.control_vel(params)
 
-    sys.stdout.write(f"Velocity control sent to motor {args.slave_id}\n")
-    sys.stdout.write(
-        f"Response - Position: {state.position:.6f}, "
-        f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}\n"
-    )
+        sys.stdout.write(f"Velocity control sent to motor {args.slave_id}\n")
+        sys.stdout.write(
+            f"Response - Position: {state.position:.6f}, "
+            f"Velocity: {state.velocity:.6f}, "
+            f"Torque: {state.torque:.6f}\n"
+        )
+    finally:
+        bus.bus.shutdown()
 
 
 async def _control_pos_force(args: argparse.Namespace) -> None:
     """Control motor in position/force mode using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    params = PosForceControlParams(
-        position=args.pos, velocity=args.vel, current_norm=args.i_norm
-    )
+        params = PosForceControlParams(
+            position=args.pos, velocity=args.vel, current_norm=args.i_norm
+        )
 
-    state = await motor.control_pos_force(params)
+        state = await motor.control_pos_force(params)
 
-    sys.stdout.write(f"Position/force control sent to motor {args.slave_id}\n")
-    sys.stdout.write(
-        f"Response - Position: {state.position:.6f}, "
-        f"Velocity: {state.velocity:.6f}, "
-        f"Torque: {state.torque:.6f}\n"
-    )
+        sys.stdout.write(f"Position/force control sent to motor {args.slave_id}\n")
+        sys.stdout.write(
+            f"Response - Position: {state.position:.6f}, "
+            f"Velocity: {state.velocity:.6f}, "
+            f"Torque: {state.torque:.6f}\n"
+        )
+    finally:
+        bus.bus.shutdown()
 
 
 async def _save_parameters(args: argparse.Namespace) -> None:
     """Save motor parameters to flash using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    response = await motor.save_parameters()
+        response = await motor.save_parameters()
 
-    if response.success:
-        sys.stdout.write(f"Parameters saved successfully for motor {args.slave_id}\n")
-    else:
-        sys.stderr.write(f"Failed to save parameters for motor {args.slave_id}\n")
-        sys.exit(1)
+        if response.success:
+            sys.stdout.write(
+                f"Parameters saved successfully for motor {args.slave_id}\n"
+            )
+        else:
+            sys.stderr.write(f"Failed to save parameters for motor {args.slave_id}\n")
+            sys.exit(1)
+    finally:
+        bus.bus.shutdown()
 
 
 # High-level Motor class interface functions
 async def _motor_get_param(args: argparse.Namespace) -> None:
     """Get semantic motor parameter using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    param_name = args.parameter
+        param_name = args.parameter
 
-    # Map parameter names to Motor class methods
-    param_methods = {
-        # Control Mode
-        "control_mode": motor.get_control_mode,
-        # Voltage Protection
-        "under_voltage": motor.get_under_voltage,
-        "over_voltage": motor.get_over_voltage,
-        # Motor Characteristics
-        "torque_coefficient": motor.get_torque_coefficient,
-        "gear_efficiency": motor.get_gear_efficiency,
-        # Protection Limits
-        "over_temperature": motor.get_over_temperature,
-        "over_current": motor.get_over_current,
-        # Mapping Limits
-        "position_limit": motor.get_position_limit,
-        "velocity_limit": motor.get_velocity_limit,
-        "torque_limit": motor.get_torque_limit,
-        # Control Loop Parameters
-        "velocity_kp": motor.get_velocity_kp,
-        "velocity_ki": motor.get_velocity_ki,
-        "position_kp": motor.get_position_kp,
-        "position_ki": motor.get_position_ki,
-        # Current and Speed Loop Parameters (NEW)
-        "current_loop_bandwidth": motor.get_current_loop_bandwidth,
-        "speed_loop_damping": motor.get_speed_loop_damping,
-        "speed_loop_filter_bandwidth": motor.get_speed_loop_filter_bandwidth,
-        "current_loop_gain": motor.get_current_loop_gain,
-        "speed_loop_gain": motor.get_speed_loop_gain,
-        # Read-Only Motor Information
-        "hardware_version": motor.get_hardware_version,
-        "software_version": motor.get_software_version,
-        "serial_number": motor.get_serial_number,
-        "gear_ratio": motor.get_gear_ratio,
-        "motor_damping": motor.get_motor_damping,  # NEW
-        "motor_inertia": motor.get_motor_inertia,  # NEW
-        "motor_pole_pairs": motor.get_motor_pole_pairs,  # NEW
-        "motor_phase_resistance": motor.get_motor_phase_resistance,  # NEW
-        "motor_phase_inductance": motor.get_motor_phase_inductance,  # NEW
-        "motor_flux": motor.get_motor_flux,  # NEW
-        "sub_version": motor.get_sub_version,  # NEW
-        # Motion Parameters
-        "acceleration": motor.get_acceleration,
-        "deceleration": motor.get_deceleration,
-        "max_speed": motor.get_max_speed,
-        # Communication Parameters
-        "master_id": motor.get_master_id,
-        "slave_id": motor.get_slave_id,
-        "timeout": motor.get_timeout,
-        "can_baudrate": motor.get_can_baudrate,
-        # Read-Only Calibration and Position
-        "phase_u_offset": motor.get_phase_u_offset,  # NEW
-        "phase_v_offset": motor.get_phase_v_offset,  # NEW
-        "compensation_factor_1": motor.get_compensation_factor_1,  # NEW
-        "compensation_factor_2": motor.get_compensation_factor_2,  # NEW
-        "angle_offset": motor.get_angle_offset,  # NEW
-        "direction": motor.get_direction,  # NEW
-        "motor_position": motor.get_motor_position,  # NEW
-        "output_shaft_position": motor.get_output_shaft_position,  # NEW
-    }
+        # Map parameter names to Motor class methods
+        param_methods = {
+            # Control Mode
+            "control_mode": motor.get_control_mode,
+            # Voltage Protection
+            "under_voltage": motor.get_under_voltage,
+            "over_voltage": motor.get_over_voltage,
+            # Motor Characteristics
+            "torque_coefficient": motor.get_torque_coefficient,
+            "gear_efficiency": motor.get_gear_efficiency,
+            # Protection Limits
+            "over_temperature": motor.get_over_temperature,
+            "over_current": motor.get_over_current,
+            # Mapping Limits
+            "position_limit": motor.get_position_limit,
+            "velocity_limit": motor.get_velocity_limit,
+            "torque_limit": motor.get_torque_limit,
+            # Control Loop Parameters
+            "velocity_kp": motor.get_velocity_kp,
+            "velocity_ki": motor.get_velocity_ki,
+            "position_kp": motor.get_position_kp,
+            "position_ki": motor.get_position_ki,
+            # Current and Speed Loop Parameters (NEW)
+            "current_loop_bandwidth": motor.get_current_loop_bandwidth,
+            "speed_loop_damping": motor.get_speed_loop_damping,
+            "speed_loop_filter_bandwidth": motor.get_speed_loop_filter_bandwidth,
+            "current_loop_gain": motor.get_current_loop_gain,
+            "speed_loop_gain": motor.get_speed_loop_gain,
+            # Read-Only Motor Information
+            "hardware_version": motor.get_hardware_version,
+            "software_version": motor.get_software_version,
+            "serial_number": motor.get_serial_number,
+            "gear_ratio": motor.get_gear_ratio,
+            "motor_damping": motor.get_motor_damping,  # NEW
+            "motor_inertia": motor.get_motor_inertia,  # NEW
+            "motor_pole_pairs": motor.get_motor_pole_pairs,  # NEW
+            "motor_phase_resistance": motor.get_motor_phase_resistance,  # NEW
+            "motor_phase_inductance": motor.get_motor_phase_inductance,  # NEW
+            "motor_flux": motor.get_motor_flux,  # NEW
+            "sub_version": motor.get_sub_version,  # NEW
+            # Motion Parameters
+            "acceleration": motor.get_acceleration,
+            "deceleration": motor.get_deceleration,
+            "max_speed": motor.get_max_speed,
+            # Communication Parameters
+            "master_id": motor.get_master_id,
+            "slave_id": motor.get_slave_id,
+            "timeout": motor.get_timeout,
+            "can_baudrate": motor.get_can_baudrate,
+            # Read-Only Calibration and Position
+            "phase_u_offset": motor.get_phase_u_offset,  # NEW
+            "phase_v_offset": motor.get_phase_v_offset,  # NEW
+            "compensation_factor_1": motor.get_compensation_factor_1,  # NEW
+            "compensation_factor_2": motor.get_compensation_factor_2,  # NEW
+            "angle_offset": motor.get_angle_offset,  # NEW
+            "direction": motor.get_direction,  # NEW
+            "motor_position": motor.get_motor_position,  # NEW
+            "output_shaft_position": motor.get_output_shaft_position,  # NEW
+        }
 
-    if param_name not in param_methods:
-        sys.stderr.write(f"Unknown parameter: {param_name}\n")
-        sys.stderr.write(f"Available parameters: {', '.join(param_methods.keys())}\n")
-        sys.exit(1)
+        if param_name not in param_methods:
+            sys.stderr.write(f"Unknown parameter: {param_name}\n")
+            sys.stderr.write(
+                f"Available parameters: {', '.join(param_methods.keys())}\n"
+            )
+            sys.exit(1)
 
-    value = await param_methods[param_name]()
+        value = await param_methods[param_name]()
 
-    # Handle special display formatting
-    if param_name == "control_mode":
-        # Convert ControlMode enum value to name
-        mode_name = ControlMode(value).name if isinstance(value, int) else value.name
-        sys.stdout.write(f"{param_name}: {mode_name}\n")
-    else:
-        sys.stdout.write(f"{param_name}: {value}\n")
+        # Handle special display formatting
+        if param_name == "control_mode":
+            # Convert ControlMode enum value to name
+            mode_name = (
+                ControlMode(value).name if isinstance(value, int) else value.name
+            )
+            sys.stdout.write(f"{param_name}: {mode_name}\n")
+        else:
+            sys.stdout.write(f"{param_name}: {value}\n")
+    finally:
+        bus.bus.shutdown()
 
 
 async def _motor_set_param(args: argparse.Namespace) -> None:
     """Set semantic motor parameter using Motor class."""
     bus = _create_bus(args.iface)
-    motor_type = MotorType(args.motor_type)
-    motor = Motor(
-        bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
-    )
+    try:
+        motor_type = MotorType(args.motor_type)
+        motor = Motor(
+            bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
+        )
 
-    param_name = args.parameter
-    value = args.value
+        param_name = args.parameter
+        value = args.value
 
-    # Map parameter names to Motor class setter methods
-    param_methods = {
-        # Control Mode
-        "control_mode": motor.set_control_mode,
-        # Voltage Protection
-        "under_voltage": motor.set_under_voltage,
-        "over_voltage": motor.set_over_voltage,
-        # Motor Characteristics
-        "torque_coefficient": motor.set_torque_coefficient,
-        "gear_efficiency": motor.set_gear_efficiency,
-        # Protection Limits
-        "over_temperature": motor.set_over_temperature,
-        "over_current": motor.set_over_current,
-        # Mapping Limits
-        "position_limit": motor.set_position_limit,
-        "velocity_limit": motor.set_velocity_limit,
-        "torque_limit": motor.set_torque_limit,
-        # Control Loop Parameters
-        "velocity_kp": motor.set_velocity_kp,
-        "velocity_ki": motor.set_velocity_ki,
-        "position_kp": motor.set_position_kp,
-        "position_ki": motor.set_position_ki,
-        # Current and Speed Loop Parameters (NEW)
-        "current_loop_bandwidth": motor.set_current_loop_bandwidth,
-        "speed_loop_damping": motor.set_speed_loop_damping,
-        "speed_loop_filter_bandwidth": motor.set_speed_loop_filter_bandwidth,
-        "current_loop_gain": motor.set_current_loop_gain,
-        "speed_loop_gain": motor.set_speed_loop_gain,
-        # Motion Parameters
-        "acceleration": motor.set_acceleration,
-        "deceleration": motor.set_deceleration,
-        "max_speed": motor.set_max_speed,
-        # Communication Parameters
-        "master_id": motor.set_master_id,
-        "slave_id": motor.set_slave_id,
-        "timeout": motor.set_timeout,
-        "can_baudrate": motor.set_can_baudrate,
-        # Note: Read-only parameters are not included in setter methods
-    }
+        # Map parameter names to Motor class setter methods
+        param_methods = {
+            # Control Mode
+            "control_mode": motor.set_control_mode,
+            # Voltage Protection
+            "under_voltage": motor.set_under_voltage,
+            "over_voltage": motor.set_over_voltage,
+            # Motor Characteristics
+            "torque_coefficient": motor.set_torque_coefficient,
+            "gear_efficiency": motor.set_gear_efficiency,
+            # Protection Limits
+            "over_temperature": motor.set_over_temperature,
+            "over_current": motor.set_over_current,
+            # Mapping Limits
+            "position_limit": motor.set_position_limit,
+            "velocity_limit": motor.set_velocity_limit,
+            "torque_limit": motor.set_torque_limit,
+            # Control Loop Parameters
+            "velocity_kp": motor.set_velocity_kp,
+            "velocity_ki": motor.set_velocity_ki,
+            "position_kp": motor.set_position_kp,
+            "position_ki": motor.set_position_ki,
+            # Current and Speed Loop Parameters (NEW)
+            "current_loop_bandwidth": motor.set_current_loop_bandwidth,
+            "speed_loop_damping": motor.set_speed_loop_damping,
+            "speed_loop_filter_bandwidth": motor.set_speed_loop_filter_bandwidth,
+            "current_loop_gain": motor.set_current_loop_gain,
+            "speed_loop_gain": motor.set_speed_loop_gain,
+            # Motion Parameters
+            "acceleration": motor.set_acceleration,
+            "deceleration": motor.set_deceleration,
+            "max_speed": motor.set_max_speed,
+            # Communication Parameters
+            "master_id": motor.set_master_id,
+            "slave_id": motor.set_slave_id,
+            "timeout": motor.set_timeout,
+            "can_baudrate": motor.set_can_baudrate,
+            # Note: Read-only parameters are not included in setter methods
+        }
 
-    if param_name not in param_methods:
-        sys.stderr.write(f"Unknown parameter: {param_name}\n")
-        sys.stderr.write(f"Available parameters: {', '.join(param_methods.keys())}\n")
-        sys.exit(1)
+        if param_name not in param_methods:
+            sys.stderr.write(f"Unknown parameter: {param_name}\n")
+            sys.stderr.write(
+                f"Available parameters: {', '.join(param_methods.keys())}\n"
+            )
+            sys.exit(1)
 
-    result = await param_methods[param_name](value)
-    sys.stdout.write(f"{param_name} set to: {result}\n")
+        result = await param_methods[param_name](value)
+        sys.stdout.write(f"{param_name} set to: {result}\n")
+    finally:
+        bus.bus.shutdown()
 
 
 def _run_async(coro: Coroutine[Any, Any, None]) -> None:
