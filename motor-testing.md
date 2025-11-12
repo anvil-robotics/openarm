@@ -54,12 +54,17 @@ python -m openarm.damiao disable --motor-type DM8009 --iface follower_l 1 17
 
 #### J2 (DM8009)
 
+**Safety Note**: J2 movement direction is critical to avoid collision with the pedestal.
+- **Left arm (`follower_l`)**: Use **-0.15 rad** to move away from pedestal (safe direction)
+- **Right arm (`follower_r`)**: Use **+0.15 rad** to move away from pedestal (safe direction)
+
 ```bash
 python -m openarm.damiao enable --motor-type DM8009 --iface follower_l 2 18
 python -m openarm.damiao param set --motor-type DM8009 --iface follower_l 2 18 control_mode 2
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 0.0 0.2
 sleep 2
-python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 0.3 0.2
+# Safety Note: please ensure the arm is moving away from the pedestal for safety
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 -0.15 0.15
 sleep 2
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 0.0 0.2
 sleep 2
