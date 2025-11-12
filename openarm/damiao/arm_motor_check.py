@@ -5,11 +5,11 @@ sequentially. Each motor goes through the sequence: 0 rad → 0.15 rad → 0 rad
 with position verification at each step.
 
 Usage:
-    python -m openarm.damiao.arm_motor_check [--iface INTERFACE]
+    python -m openarm.damiao.arm_motor_check --iface INTERFACE --side {left,right}
 
 Examples:
-    python -m openarm.damiao.arm_motor_check --iface follower_l
-    python -m openarm.damiao.arm_motor_check --iface can0
+    python -m openarm.damiao.arm_motor_check --iface follower_l --side left
+    python -m openarm.damiao.arm_motor_check --iface can0 --side right
 """
 
 import argparse
@@ -17,6 +17,7 @@ import asyncio
 import sys
 import time
 from dataclasses import dataclass
+from math import pi
 from typing import Optional
 
 import can
@@ -77,12 +78,13 @@ async def wait_for_position(
     return False
 
 
-async def test_single_motor(bus: Bus, motor_config) -> MotorTestResult:
+async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResult:
     """Test a single motor through its movement sequence.
 
     Args:
         bus: Shared Bus instance for CAN communication
         motor_config: MotorConfig instance with motor parameters
+        side: Arm side ('left' or 'right')
 
     Returns:
         MotorTestResult indicating success or failure
@@ -92,10 +94,35 @@ async def test_single_motor(bus: Bus, motor_config) -> MotorTestResult:
     master_id = motor_config.master_id
     motor_type = motor_config.type
 
+    # Get side-specific angle limits
+    min_angle = (
+        motor_config.min_angle_left if side == "left" else motor_config.min_angle_right
+    )
+    max_angle = (
+        motor_config.max_angle_left if side == "left" else motor_config.max_angle_right
+    )
+
+    # Convert limits from degrees to radians
+    min_angle_rad = min_angle * pi / 180
+    max_angle_rad = max_angle * pi / 180
+
+    # Determine test position (default 0.15 rad ≈ 8.59°)
+    test_position_rad = 0.15
+
+    # Check if 0.15 rad is within valid range
+    if test_position_rad < min_angle_rad or test_position_rad > max_angle_rad:
+        # Calculate a safe test position (10% of range from zero)
+        range_span_rad = max_angle_rad - min_angle_rad
+        test_position_rad = min(max_angle_rad - 0.01, max(min_angle_rad + 0.01, range_span_rad * 0.1))
+
     sys.stdout.write(f"\n{'='*60}\n")
     sys.stdout.write(
         f"Testing {motor_name} ({motor_type.value}, "
         f"Slave ID: {slave_id}, Master ID: {master_id})\n"
+    )
+    sys.stdout.write(
+        f"  Range: {min_angle:+.1f}° to {max_angle:+.1f}° "
+        f"({min_angle_rad:+.3f} to {max_angle_rad:+.3f} rad)\n"
     )
     sys.stdout.write(f"{'='*60}\n")
 
@@ -132,19 +159,24 @@ async def test_single_motor(bus: Bus, motor_config) -> MotorTestResult:
                 motor_name, False, "Timeout waiting for position 0.0 rad"
             )
 
-        # Step 4: Move to 0.15 rad
-        sys.stdout.write("  ➤ Moving to 0.15 rad... ")
+        # Step 4: Move to test position
+        test_position_deg = test_position_rad * 180 / pi
+        sys.stdout.write(
+            f"  ➤ Moving to {test_position_rad:+.3f} rad ({test_position_deg:+.2f}°)... "
+        )
         sys.stdout.flush()
-        params = PosVelControlParams(position=0.15, velocity=TEST_VELOCITY)
+        params = PosVelControlParams(position=test_position_rad, velocity=TEST_VELOCITY)
         await motor.control_pos_vel(params)
 
-        if await wait_for_position(motor, 0.15):
+        if await wait_for_position(motor, test_position_rad):
             sys.stdout.write("✓\n")
         else:
             sys.stdout.write("✗ (timeout)\n")
             await motor.disable()
             return MotorTestResult(
-                motor_name, False, "Timeout waiting for position 0.15 rad"
+                motor_name,
+                False,
+                f"Timeout waiting for position {test_position_rad:.3f} rad",
             )
 
         # Step 5: Move back to 0.0 rad
@@ -176,17 +208,19 @@ async def test_single_motor(bus: Bus, motor_config) -> MotorTestResult:
         return MotorTestResult(motor_name, False, str(e))
 
 
-async def test_all_motors(can_interface: str):
+async def test_all_motors(can_interface: str, side: str):
     """Test all configured motors sequentially.
 
     Args:
         can_interface: CAN interface name (e.g., 'follower_l', 'can0')
+        side: Arm side ('left' or 'right')
     """
     sys.stdout.write("\n")
     sys.stdout.write("╔════════════════════════════════════════════════════════════╗\n")
     sys.stdout.write("║           OpenArm Motor Check Script                      ║\n")
     sys.stdout.write("╚════════════════════════════════════════════════════════════╝\n")
     sys.stdout.write(f"\nCAN Interface: {can_interface}\n")
+    sys.stdout.write(f"Arm Side: {side.capitalize()}\n")
     sys.stdout.write(f"Test Velocity: {TEST_VELOCITY} rad/s\n")
     sys.stdout.write(f"Position Tolerance: {POSITION_TOLERANCE} rad\n")
     sys.stdout.write(f"Position Timeout: {POSITION_TIMEOUT} seconds\n")
@@ -200,7 +234,7 @@ async def test_all_motors(can_interface: str):
         results = []
 
         for motor_config in MOTOR_CONFIGS:
-            result = await test_single_motor(bus, motor_config)
+            result = await test_single_motor(bus, motor_config, side)
             results.append(result)
 
         # Print summary
@@ -241,14 +275,22 @@ def main():
     )
     parser.add_argument(
         "--iface",
-        default="follower_l",
-        help="CAN interface to use (default: follower_l)",
+        "-i",
+        required=True,
+        help="CAN interface name (e.g., follower_l, follower_r, leader_l, leader_r, can0, can1)",
+    )
+    parser.add_argument(
+        "--side",
+        "-s",
+        required=True,
+        choices=["left", "right"],
+        help="Arm side (left or right) - determines angle limits from motor configuration",
     )
 
     args = parser.parse_args()
 
     try:
-        asyncio.run(test_all_motors(args.iface))
+        asyncio.run(test_all_motors(args.iface, args.side))
     except KeyboardInterrupt:
         sys.stderr.write("\n\nTest interrupted by user\n")
         sys.exit(1)
