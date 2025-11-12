@@ -34,7 +34,11 @@ TEST_VELOCITY = 0.2  # rad/s
 POSITION_TOLERANCE = 0.01  # rad
 POSITION_TIMEOUT = 10.0  # seconds
 POLL_INTERVAL = 0.1  # seconds
+# Safety margin to keep away from mechanical limits
+SAFETY_MARGIN_RAD = 0.01
 
+# Determine test position - try to move 0.15 rad in a valid direction
+TEST_MOVEMENT_RAD = 0.15
 
 @dataclass
 class MotorTestResult:
@@ -106,14 +110,20 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
     min_angle_rad = min_angle * pi / 180
     max_angle_rad = max_angle * pi / 180
 
-    # Determine test position (default 0.15 rad ≈ 8.59°)
-    test_position_rad = 0.15
-
-    # Check if 0.15 rad is within valid range
-    if test_position_rad < min_angle_rad or test_position_rad > max_angle_rad:
-        # Calculate a safe test position (10% of range from zero)
-        range_span_rad = max_angle_rad - min_angle_rad
-        test_position_rad = min(max_angle_rad - 0.01, max(min_angle_rad + 0.01, range_span_rad * 0.1))
+    # Try positive direction first
+    if 0.0 + TEST_MOVEMENT_RAD <= max_angle_rad - SAFETY_MARGIN_RAD:
+        test_position_rad = TEST_MOVEMENT_RAD
+    # Try negative direction if positive doesn't work
+    elif 0.0 - TEST_MOVEMENT_RAD >= min_angle_rad + SAFETY_MARGIN_RAD:
+        test_position_rad = -TEST_MOVEMENT_RAD
+    # If neither ±0.15 fits, use middle of valid range
+    else:
+        range_center = (min_angle_rad + max_angle_rad) / 2
+        # Clamp to safe bounds
+        test_position_rad = max(
+            min_angle_rad + SAFETY_MARGIN_RAD,
+            min(max_angle_rad - SAFETY_MARGIN_RAD, range_center),
+        )
 
     sys.stdout.write(f"\n{'='*60}\n")
     sys.stdout.write(
