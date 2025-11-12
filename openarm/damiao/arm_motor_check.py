@@ -110,20 +110,31 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
     min_angle_rad = min_angle * pi / 180
     max_angle_rad = max_angle * pi / 180
 
-    # Try positive direction first
-    if 0.0 + TEST_MOVEMENT_RAD <= max_angle_rad - SAFETY_MARGIN_RAD:
-        test_position_rad = TEST_MOVEMENT_RAD
-    # Try negative direction if positive doesn't work
-    elif 0.0 - TEST_MOVEMENT_RAD >= min_angle_rad + SAFETY_MARGIN_RAD:
-        test_position_rad = -TEST_MOVEMENT_RAD
-    # If neither ±0.15 fits, use middle of valid range
+    # Special case for J2: avoid collision with pedestal
+    # Left arm J2 must move negative, right arm J2 must move positive
+    if motor_name == "J2":
+        if side == "left":
+            # Force negative movement for left arm to avoid pedestal collision
+            test_position_rad = -TEST_MOVEMENT_RAD
+        else:  # side == "right"
+            # Force positive movement for right arm
+            test_position_rad = TEST_MOVEMENT_RAD
+    # For all other motors: try to move 0.15 rad in a valid direction
     else:
-        range_center = (min_angle_rad + max_angle_rad) / 2
-        # Clamp to safe bounds
-        test_position_rad = max(
-            min_angle_rad + SAFETY_MARGIN_RAD,
-            min(max_angle_rad - SAFETY_MARGIN_RAD, range_center),
-        )
+        # Try positive direction first
+        if 0.0 + TEST_MOVEMENT_RAD <= max_angle_rad - SAFETY_MARGIN_RAD:
+            test_position_rad = TEST_MOVEMENT_RAD
+        # Try negative direction if positive doesn't work
+        elif 0.0 - TEST_MOVEMENT_RAD >= min_angle_rad + SAFETY_MARGIN_RAD:
+            test_position_rad = -TEST_MOVEMENT_RAD
+        # If neither ±0.15 fits, use middle of valid range
+        else:
+            range_center = (min_angle_rad + max_angle_rad) / 2
+            # Clamp to safe bounds
+            test_position_rad = max(
+                min_angle_rad + SAFETY_MARGIN_RAD,
+                min(max_angle_rad - SAFETY_MARGIN_RAD, range_center),
+            )
 
     sys.stdout.write(f"\n{'='*60}\n")
     sys.stdout.write(
