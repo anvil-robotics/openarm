@@ -1,15 +1,18 @@
-"""Arm motor check script for OpenArm.
+r"""Arm motor check script for OpenArm.
 
-This script checks all configured arm motors by moving them through their range of motion
-sequentially. Each motor goes through the sequence: 0 rad → 0.15 rad → 0 rad,
-with position verification at each step.
+This script checks all configured arm motors by moving them through their
+range of motion sequentially. Each motor goes through the sequence:
+0 rad → 0.15 rad → 0 rad, with position verification at each step.
 
 Usage:
-    python -m openarm.damiao.arm_motor_check --iface INTERFACE --side {left,right}
+    python -m openarm.damiao.arm_motor_check --iface INTERFACE \
+        --side {left,right}
 
 Examples:
-    python -m openarm.damiao.arm_motor_check --iface follower_l --side left
+    python -m openarm.damiao.arm_motor_check --iface follower_l \
+        --side left
     python -m openarm.damiao.arm_motor_check --iface can0 --side right
+
 """
 
 import argparse
@@ -18,17 +21,15 @@ import sys
 import time
 from dataclasses import dataclass
 from math import pi
-from typing import Optional
 
 import can
 
 from openarm.bus import Bus
 
-from .config import MOTOR_CONFIGS
+from .config import MOTOR_CONFIGS, MotorConfig
 from .detect import detect_motors
 from .encoding import ControlMode, PosVelControlParams
 from .motor import Motor
-
 
 # Test parameters (constants)
 TEST_VELOCITY = 0.2  # rad/s
@@ -69,25 +70,28 @@ class MotorTestResult:
 
     motor_name: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 async def wait_for_position(
-    motor: Motor, target_position: float, timeout: float = POSITION_TIMEOUT
+    motor: Motor,
+    target_position: float,
+    timeout_seconds: float = POSITION_TIMEOUT,
 ) -> bool:
     """Wait for motor to reach target position within tolerance.
 
     Args:
         motor: Motor instance to monitor
         target_position: Target position in radians
-        timeout: Maximum wait time in seconds
+        timeout_seconds: Maximum wait time in seconds
 
     Returns:
         True if position reached within timeout, False otherwise
+
     """
     start_time = time.time()
 
-    while time.time() - start_time < timeout:
+    while time.time() - start_time < timeout_seconds:
         try:
             state = await motor.refresh_status()
             position_error = abs(state.position - target_position)
@@ -98,14 +102,16 @@ async def wait_for_position(
             # Brief sleep between polls
             await asyncio.sleep(POLL_INTERVAL)
 
-        except Exception as e:
+        except (OSError, TimeoutError) as e:
             sys.stderr.write(f"Error checking position: {e}\n")
             return False
 
     return False
 
 
-async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResult:
+async def test_single_motor(
+    bus: Bus, motor_config: MotorConfig, side: str
+) -> MotorTestResult:
     """Test a single motor through its movement sequence.
 
     Args:
@@ -115,6 +121,7 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
 
     Returns:
         MotorTestResult indicating success or failure
+
     """
     motor_name = motor_config.name
     slave_id = motor_config.slave_id
@@ -142,11 +149,16 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
         <= test_position_rad
         <= max_angle_rad - SAFETY_MARGIN_RAD
     ):
+        min_safe = min_angle_rad + SAFETY_MARGIN_RAD
+        max_safe = max_angle_rad - SAFETY_MARGIN_RAD
+        error_msg = (
+            f"Test position {test_position_rad:.3f} rad is outside "
+            f"safe limits [{min_safe:.3f}, {max_safe:.3f}]"
+        )
         return MotorTestResult(
-            motor_name,
-            False,
-            f"Test position {test_position_rad:.3f} rad is outside safe limits "
-            f"[{min_angle_rad + SAFETY_MARGIN_RAD:.3f}, {max_angle_rad - SAFETY_MARGIN_RAD:.3f}]",
+            motor_name=motor_name,
+            success=False,
+            error=error_msg,
         )
 
     sys.stdout.write(f"\n{'=' * 60}\n")
@@ -190,13 +202,16 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
         else:
             sys.stdout.write("✗ (timeout)\n")
             return MotorTestResult(
-                motor_name, False, "Timeout waiting for position 0.0 rad"
+                motor_name=motor_name,
+                success=False,
+                error="Timeout waiting for position 0.0 rad",
             )
 
         # Step 4: Move to test position
         test_position_deg = test_position_rad * 180 / pi
         sys.stdout.write(
-            f"  ➤ Moving to {test_position_rad:+.3f} rad ({test_position_deg:+.2f}°)... "
+            f"  ➤ Moving to {test_position_rad:+.3f} rad "
+            f"({test_position_deg:+.2f}°)... "
         )
         sys.stdout.flush()
         params = PosVelControlParams(position=test_position_rad, velocity=TEST_VELOCITY)
@@ -206,10 +221,11 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
             sys.stdout.write("✓\n")
         else:
             sys.stdout.write("✗ (timeout)\n")
+            error_msg = f"Timeout waiting for position {test_position_rad:.3f} rad"
             return MotorTestResult(
-                motor_name,
-                False,
-                f"Timeout waiting for position {test_position_rad:.3f} rad",
+                motor_name=motor_name,
+                success=False,
+                error=error_msg,
             )
 
         # Step 5: Move back to 0.0 rad
@@ -223,15 +239,17 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
         else:
             sys.stdout.write("✗ (timeout)\n")
             return MotorTestResult(
-                motor_name, False, "Timeout waiting for final position 0.0 rad"
+                motor_name=motor_name,
+                success=False,
+                error="Timeout waiting for final position 0.0 rad",
             )
 
         sys.stdout.write(f"  ✓ {motor_name} test PASSED\n")
-        return MotorTestResult(motor_name, True)
+        return MotorTestResult(motor_name=motor_name, success=True)
 
-    except Exception as e:
+    except (OSError, TimeoutError, ValueError) as e:
         sys.stderr.write(f"\n  ✗ {motor_name} test FAILED: {e}\n")
-        return MotorTestResult(motor_name, False, str(e))
+        return MotorTestResult(motor_name=motor_name, success=False, error=str(e))
 
     finally:
         # Always disable motor for safety, regardless of success or failure
@@ -241,7 +259,7 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
                 sys.stdout.flush()
                 await motor.disable()
                 sys.stdout.write("✓\n")
-            except Exception as disable_error:
+            except (OSError, TimeoutError) as disable_error:
                 sys.stderr.write(f"✗\n  ⚠ Failed to disable motor: {disable_error}\n")
 
 
@@ -256,6 +274,7 @@ def check_motors_present(
 
     Returns:
         Tuple of (all_present, missing_motors_list)
+
     """
     # Get slave IDs we're looking for
     expected_slave_ids = [motor.slave_id for motor in expected_motors]
@@ -265,20 +284,22 @@ def check_motors_present(
     detected_slave_ids = {info.slave_id for info in detected}
 
     # Check which motors are missing
-    missing = []
-    for motor_config in expected_motors:
-        if motor_config.slave_id not in detected_slave_ids:
-            missing.append(motor_config.name)
+    missing = [
+        motor_config.name
+        for motor_config in expected_motors
+        if motor_config.slave_id not in detected_slave_ids
+    ]
 
     return len(missing) == 0, missing
 
 
-async def test_all_motors(can_interface: str, side: str):
+async def test_all_motors(can_interface: str, side: str) -> None:
     """Test all configured motors sequentially.
 
     Args:
         can_interface: CAN interface name (e.g., 'follower_l', 'can0')
         side: Arm side ('left' or 'right')
+
     """
     sys.stdout.write("\n")
     sys.stdout.write("╔════════════════════════════════════════════════════════════╗\n")
@@ -352,8 +373,8 @@ async def test_all_motors(can_interface: str, side: str):
         can_bus.shutdown()
 
 
-def main():
-    """Main entry point for the script."""
+def main() -> None:
+    """Execute the motor check script."""
     parser = argparse.ArgumentParser(
         description="Arm motor check for OpenArm - tests all motors sequentially",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -362,14 +383,20 @@ def main():
         "--iface",
         "-i",
         required=True,
-        help="CAN interface name (e.g., follower_l, follower_r, leader_l, leader_r, can0, can1)",
+        help=(
+            "CAN interface name (e.g., follower_l, follower_r, "
+            "leader_l, leader_r, can0, can1)"
+        ),
     )
     parser.add_argument(
         "--side",
         "-s",
         required=True,
         choices=["left", "right"],
-        help="Arm side (left or right) - determines angle limits from motor configuration",
+        help=(
+            "Arm side (left or right) - determines angle limits "
+            "from motor configuration"
+        ),
     )
 
     args = parser.parse_args()
@@ -379,7 +406,7 @@ def main():
     except KeyboardInterrupt:
         sys.stderr.write("\n\nTest interrupted by user\n")
         sys.exit(1)
-    except Exception as e:
+    except (OSError, TimeoutError, ValueError) as e:
         sys.stderr.write(f"\n\nFatal error: {e}\n")
         sys.exit(1)
 
