@@ -149,7 +149,7 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
             f"[{min_angle_rad + SAFETY_MARGIN_RAD:.3f}, {max_angle_rad - SAFETY_MARGIN_RAD:.3f}]",
         )
 
-    sys.stdout.write(f"\n{'='*60}\n")
+    sys.stdout.write(f"\n{'=' * 60}\n")
     sys.stdout.write(
         f"Testing {motor_name} ({motor_type.value}, "
         f"Slave ID: {slave_id}, Master ID: {master_id})\n"
@@ -158,7 +158,7 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
         f"  Range: {min_angle:+.1f}° to {max_angle:+.1f}° "
         f"({min_angle_rad:+.3f} to {max_angle_rad:+.3f} rad)\n"
     )
-    sys.stdout.write(f"{'='*60}\n")
+    sys.stdout.write(f"{'=' * 60}\n")
 
     motor = None
     try:
@@ -297,9 +297,9 @@ async def test_all_motors(can_interface: str, side: str):
 
     try:
         # Pre-flight check: verify all motors are present
-        sys.stdout.write(f"\n{'='*60}\n")
+        sys.stdout.write(f"\n{'=' * 60}\n")
         sys.stdout.write("PRE-FLIGHT CHECK: Detecting motors on CAN bus...\n")
-        sys.stdout.write(f"{'='*60}\n")
+        sys.stdout.write(f"{'=' * 60}\n")
 
         all_present, missing = check_motors_present(can_bus, MOTOR_CONFIGS)
 
@@ -323,9 +323,9 @@ async def test_all_motors(can_interface: str, side: str):
             results.append(result)
 
         # Print summary
-        sys.stdout.write(f"\n\n{'='*60}\n")
+        sys.stdout.write(f"\n\n{'=' * 60}\n")
         sys.stdout.write("TEST SUMMARY\n")
-        sys.stdout.write(f"{'='*60}\n")
+        sys.stdout.write(f"{'=' * 60}\n")
 
         passed = sum(1 for r in results if r.success)
         failed = sum(1 for r in results if not r.success)
@@ -337,11 +337,11 @@ async def test_all_motors(can_interface: str, side: str):
                 sys.stdout.write(f" - {result.error}")
             sys.stdout.write("\n")
 
-        sys.stdout.write(f"\n{'='*60}\n")
+        sys.stdout.write(f"\n{'=' * 60}\n")
         sys.stdout.write(f"Total: {len(results)} motors\n")
         sys.stdout.write(f"Passed: {passed}\n")
         sys.stdout.write(f"Failed: {failed}\n")
-        sys.stdout.write(f"{'='*60}\n\n")
+        sys.stdout.write(f"{'=' * 60}\n\n")
 
         # Exit with error code if any tests failed
         if failed > 0:
