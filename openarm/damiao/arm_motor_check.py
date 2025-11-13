@@ -25,6 +25,7 @@ import can
 from openarm.bus import Bus
 
 from .config import MOTOR_CONFIGS
+from .detect import detect_motors
 from .encoding import ControlMode, PosVelControlParams
 from .motor import Motor
 
@@ -33,12 +34,34 @@ from .motor import Motor
 TEST_VELOCITY = 0.2  # rad/s
 POSITION_TOLERANCE = 0.01  # rad
 POSITION_TIMEOUT = 10.0  # seconds
-POLL_INTERVAL = 0.1  # seconds
+POLL_INTERVAL = 1.5  # seconds
 # Safety margin to keep away from mechanical limits
 SAFETY_MARGIN_RAD = 0.01
 
-# Determine test position - try to move 0.15 rad in a valid direction
-TEST_MOVEMENT_RAD = 0.15
+# Test positions for each joint (in radians)
+JOINT_TEST_POSITIONS = {
+    "left": {
+        "J1": 0.15,
+        "J2": -0.15,  # Must move negative to avoid pedestal collision
+        "J3": 0.15,
+        "J4": 0.15,
+        "J5": -0.15,
+        "J6": 0.15,
+        "J7": 0.15,
+        "J8": -0.15,
+    },
+    "right": {
+        "J1": 0.15,
+        "J2": 0.15,  # Must move positive to avoid pedestal collision
+        "J3": 0.15,
+        "J4": 0.15,
+        "J5": 0.15,
+        "J6": -0.15,
+        "J7": 0.15,
+        "J8": -0.15,
+    },
+}
+
 
 @dataclass
 class MotorTestResult:
@@ -110,31 +133,21 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
     min_angle_rad = min_angle * pi / 180
     max_angle_rad = max_angle * pi / 180
 
-    # Special case for J2: avoid collision with pedestal
-    # Left arm J2 must move negative, right arm J2 must move positive
-    if motor_name == "J2":
-        if side == "left":
-            # Force negative movement for left arm to avoid pedestal collision
-            test_position_rad = -TEST_MOVEMENT_RAD
-        else:  # side == "right"
-            # Force positive movement for right arm
-            test_position_rad = TEST_MOVEMENT_RAD
-    # For all other motors: try to move 0.15 rad in a valid direction
-    else:
-        # Try positive direction first
-        if 0.0 + TEST_MOVEMENT_RAD <= max_angle_rad - SAFETY_MARGIN_RAD:
-            test_position_rad = TEST_MOVEMENT_RAD
-        # Try negative direction if positive doesn't work
-        elif 0.0 - TEST_MOVEMENT_RAD >= min_angle_rad + SAFETY_MARGIN_RAD:
-            test_position_rad = -TEST_MOVEMENT_RAD
-        # If neither ±0.15 fits, use middle of valid range
-        else:
-            range_center = (min_angle_rad + max_angle_rad) / 2
-            # Clamp to safe bounds
-            test_position_rad = max(
-                min_angle_rad + SAFETY_MARGIN_RAD,
-                min(max_angle_rad - SAFETY_MARGIN_RAD, range_center),
-            )
+    # Get pre-configured test position for this joint and side
+    test_position_rad = JOINT_TEST_POSITIONS[side][motor_name]
+
+    # Validate test position is within safe limits
+    if not (
+        min_angle_rad + SAFETY_MARGIN_RAD
+        <= test_position_rad
+        <= max_angle_rad - SAFETY_MARGIN_RAD
+    ):
+        return MotorTestResult(
+            motor_name,
+            False,
+            f"Test position {test_position_rad:.3f} rad is outside safe limits "
+            f"[{min_angle_rad + SAFETY_MARGIN_RAD:.3f}, {max_angle_rad - SAFETY_MARGIN_RAD:.3f}]",
+        )
 
     sys.stdout.write(f"\n{'='*60}\n")
     sys.stdout.write(
@@ -147,6 +160,7 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
     )
     sys.stdout.write(f"{'='*60}\n")
 
+    motor = None
     try:
         # Create motor instance with shared bus
         motor = Motor(
@@ -175,7 +189,6 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
             sys.stdout.write("✓\n")
         else:
             sys.stdout.write("✗ (timeout)\n")
-            await motor.disable()
             return MotorTestResult(
                 motor_name, False, "Timeout waiting for position 0.0 rad"
             )
@@ -193,7 +206,6 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
             sys.stdout.write("✓\n")
         else:
             sys.stdout.write("✗ (timeout)\n")
-            await motor.disable()
             return MotorTestResult(
                 motor_name,
                 False,
@@ -210,16 +222,9 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
             sys.stdout.write("✓\n")
         else:
             sys.stdout.write("✗ (timeout)\n")
-            await motor.disable()
             return MotorTestResult(
                 motor_name, False, "Timeout waiting for final position 0.0 rad"
             )
-
-        # Step 6: Disable motor
-        sys.stdout.write("  ➤ Disabling motor... ")
-        sys.stdout.flush()
-        await motor.disable()
-        sys.stdout.write("✓\n")
 
         sys.stdout.write(f"  ✓ {motor_name} test PASSED\n")
         return MotorTestResult(motor_name, True)
@@ -227,6 +232,43 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
     except Exception as e:
         sys.stderr.write(f"\n  ✗ {motor_name} test FAILED: {e}\n")
         return MotorTestResult(motor_name, False, str(e))
+
+    finally:
+        # Always disable motor for safety, regardless of success or failure
+        if motor is not None:
+            try:
+                sys.stdout.write("  ➤ Disabling motor... ")
+                sys.stdout.flush()
+                await motor.disable()
+                sys.stdout.write("✓\n")
+            except Exception as disable_error:
+                sys.stderr.write(f"✗\n  ⚠ Failed to disable motor: {disable_error}\n")
+
+
+def check_motors_present(can_bus: can.Bus, expected_motors: list) -> tuple[bool, list[str]]:
+    """Check if all expected motors are present on the CAN bus.
+
+    Args:
+        can_bus: CAN bus instance
+        expected_motors: List of MotorConfig objects to check for
+
+    Returns:
+        Tuple of (all_present, missing_motors_list)
+    """
+    # Get slave IDs we're looking for
+    expected_slave_ids = [motor.slave_id for motor in expected_motors]
+
+    # Detect motors on the bus
+    detected = list(detect_motors(can_bus, expected_slave_ids, timeout=0.1))
+    detected_slave_ids = {info.slave_id for info in detected}
+
+    # Check which motors are missing
+    missing = []
+    for motor_config in expected_motors:
+        if motor_config.slave_id not in detected_slave_ids:
+            missing.append(motor_config.name)
+
+    return len(missing) == 0, missing
 
 
 async def test_all_motors(can_interface: str, side: str):
@@ -245,13 +287,33 @@ async def test_all_motors(can_interface: str, side: str):
     sys.stdout.write(f"Test Velocity: {TEST_VELOCITY} rad/s\n")
     sys.stdout.write(f"Position Tolerance: {POSITION_TOLERANCE} rad\n")
     sys.stdout.write(f"Position Timeout: {POSITION_TIMEOUT} seconds\n")
-    sys.stdout.write(f"\nTesting {len(MOTOR_CONFIGS)} motors...\n")
+    sys.stdout.write(f"\nChecking {len(MOTOR_CONFIGS)} motors...\n")
 
     # Create shared CAN bus instance for all motors
     can_bus = can.Bus(channel=can_interface, interface="socketcan")
     bus = Bus(can_bus)
 
     try:
+        # Pre-flight check: verify all motors are present
+        sys.stdout.write(f"\n{'='*60}\n")
+        sys.stdout.write("PRE-FLIGHT CHECK: Detecting motors on CAN bus...\n")
+        sys.stdout.write(f"{'='*60}\n")
+
+        all_present, missing = check_motors_present(can_bus, MOTOR_CONFIGS)
+
+        if not all_present:
+            sys.stderr.write(f"\n✗ FAILED: {len(missing)} motor(s) not detected:\n")
+            for motor_name in missing:
+                sys.stderr.write(f"  - {motor_name}\n")
+            sys.stderr.write("\nPlease check:\n")
+            sys.stderr.write("  1. CAN bus connections\n")
+            sys.stderr.write(f"  2. Correct CAN interface ({can_interface})\n\n")
+            sys.stderr.write("  3. Motor cables\n")
+            sys.exit(1)
+
+        sys.stdout.write(f"✓ All {len(MOTOR_CONFIGS)} motors detected and ready\n")
+
+        # Run motor tests
         results = []
 
         for motor_config in MOTOR_CONFIGS:
@@ -322,4 +384,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
