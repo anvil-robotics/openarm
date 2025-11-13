@@ -245,7 +245,9 @@ async def test_single_motor(bus: Bus, motor_config, side: str) -> MotorTestResul
                 sys.stderr.write(f"✗\n  ⚠ Failed to disable motor: {disable_error}\n")
 
 
-def check_motors_present(can_bus: can.Bus, expected_motors: list) -> tuple[bool, list[str]]:
+def check_motors_present(
+    can_bus: can.Bus, expected_motors: list
+) -> tuple[bool, list[str]]:
     """Check if all expected motors are present on the CAN bus.
 
     Args:
