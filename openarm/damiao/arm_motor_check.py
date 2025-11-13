@@ -34,20 +34,20 @@ from .motor import Motor
 TEST_VELOCITY = 0.2  # rad/s
 POSITION_TOLERANCE = 0.01  # rad
 POSITION_TIMEOUT = 10.0  # seconds
-POLL_INTERVAL = 1.5  # seconds
+POLL_INTERVAL = 0.5  # seconds
 # Safety margin to keep away from mechanical limits
 SAFETY_MARGIN_RAD = 0.01
 
 # Test positions for each joint (in radians)
 JOINT_TEST_POSITIONS = {
     "left": {
-        "J1": 0.15,
+        "J1": -0.15,
         "J2": -0.15,  # Must move negative to avoid pedestal collision
-        "J3": 0.15,
+        "J3": -0.15,
         "J4": 0.15,
         "J5": -0.15,
         "J6": 0.15,
-        "J7": 0.15,
+        "J7": -0.15,
         "J8": -0.15,
     },
     "right": {
