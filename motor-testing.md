@@ -66,7 +66,7 @@ python -m openarm.damiao param set --motor-type DM8009 --iface follower_l 2 18 c
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 0.0 0.2
 sleep 2
 # Safety Note: please ensure the arm is moving away from the pedestal for safety
-python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 -0.15 0.15
+python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 -0.15 0.2
 sleep 2
 python -m openarm.damiao control pos_vel --motor-type DM8009 --iface follower_l 2 18 0.0 0.2
 sleep 2
