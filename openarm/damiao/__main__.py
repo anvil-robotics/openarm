@@ -34,6 +34,8 @@ from collections.abc import Callable, Coroutine
 from functools import wraps
 from typing import Any
 
+import can
+
 from openarm.bus import Bus
 
 from .encoding import (
@@ -57,21 +59,13 @@ def _output_motor_state(state: MotorState, slave_id: int) -> None:
     sys.stdout.write(f"  Rotor Temp: {state.temp_rotor}°C\n")
 
 
-def _create_bus(iface: str) -> Bus:
-    """Create CAN bus instance with SocketCAN interface."""
-    import can  # noqa: PLC0415
-
-    can_bus = can.Bus(channel=iface, interface="socketcan")
-    return Bus(can_bus)
-
-
 def with_bus_cleanup(
     func: Callable[[Bus, argparse.Namespace], Coroutine[Any, Any, None]],
 ) -> Callable[[argparse.Namespace], Coroutine[Any, Any, None]]:
     """Ensure bus cleanup after function execution.
 
     This decorator wraps async functions that use a CAN bus and ensures
-    that bus.bus.shutdown() is called after the function completes,
+    that the CAN bus is properly shut down after the function completes,
     whether it succeeds or raises an exception.
 
     The decorated function should accept (bus, args) instead of just (args).
@@ -79,11 +73,9 @@ def with_bus_cleanup(
 
     @wraps(func)
     async def wrapper(args: argparse.Namespace) -> None:
-        bus = _create_bus(args.iface)
-        try:
+        with can.Bus(channel=args.iface, interface="socketcan") as can_bus:
+            bus = Bus(can_bus)
             await func(bus, args)
-        finally:
-            bus.bus.shutdown()
 
     return wrapper
 
