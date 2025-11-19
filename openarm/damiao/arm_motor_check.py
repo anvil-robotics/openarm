@@ -1,16 +1,14 @@
-r"""Arm motor check script for OpenArm.
+"""Arm motor check script for OpenArm.
 
 This script checks all configured arm motors by moving them through their
 range of motion sequentially. Each motor goes through the sequence:
 0 rad → 0.15 rad → 0 rad, with position verification at each step.
 
 Usage:
-    python -m openarm.damiao.arm_motor_check --iface INTERFACE \
-        --side {left,right}
+    python -m openarm.damiao.arm_motor_check --iface <interface>  --side {left|right}
 
 Examples:
-    python -m openarm.damiao.arm_motor_check --iface follower_l \
-        --side left
+    python -m openarm.damiao.arm_motor_check --iface follower_l --side left
     python -m openarm.damiao.arm_motor_check --iface can0 --side right
 
 """
