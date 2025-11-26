@@ -291,49 +291,6 @@ damiao-set-zero-limit --channel can1 --side right
 
 Move each motor through its full range of motion, then press 'S' to set zero positions.
 
-### Direct Motor Control
-
-Low-level control of individual motors for testing and debugging:
-
-```bash
-# Enable a motor
-python -m openarm.damiao enable --motor-type DM4310 --iface can0 1 1
-
-# Control motor with MIT parameters
-python -m openarm.damiao control mit --motor-type DM4310 --iface can0 1 1 \
-    50 0.3 0 0 0  # kp kd q dq tau
-
-# Position/velocity control
-python -m openarm.damiao control pos_vel --motor-type DM4310 --iface can0 1 1 \
-    1.57 2.0  # position(rad) velocity(rad/s)
-
-# Get motor status
-python -m openarm.damiao refresh --motor-type DM4310 --iface can0 1 1
-
-# Get/set motor parameters
-python -m openarm.damiao param get --motor-type DM4310 --iface can0 1 1 over_voltage
-python -m openarm.damiao param set --motor-type DM4310 --iface can0 1 1 max_speed 10.0
-
-# Disable motor safely
-python -m openarm.damiao disable --motor-type DM4310 --iface can0 1 1
-```
-
-**Common Arguments:**
-
-- `--motor-type TYPE`: Motor type (`DM4310`, `DM4340`, `DM6006`, `DM8006`, `DM8009`)
-- `--iface INTERFACE`: CAN interface (default: `can0`)
-- `slave_id`: Motor ID for commands
-- `master_id`: Master ID for responses
-
-**Available Commands:**
-
-- `enable/disable`: Motor power control
-- `set-zero`: Set current position as zero
-- `refresh`: Get current motor state
-- `control`: MIT, position/velocity, velocity, or position/force control
-- `param get/set`: Read/write motor parameters
-- `save`: Save parameters to flash memory
-
 ### Gravity Compensation
 
 Run physics-based gravity compensation on specific arms:
