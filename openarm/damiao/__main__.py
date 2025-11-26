@@ -30,8 +30,11 @@ Examples:
 import argparse
 import asyncio
 import sys
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
+from functools import wraps
 from typing import Any
+
+import can
 
 from openarm.bus import Bus
 
@@ -56,17 +59,30 @@ def _output_motor_state(state: MotorState, slave_id: int) -> None:
     sys.stdout.write(f"  Rotor Temp: {state.temp_rotor}°C\n")
 
 
-def _create_bus(iface: str) -> Bus:
-    """Create CAN bus instance with SocketCAN interface."""
-    import can  # noqa: PLC0415
+def with_bus_cleanup(
+    func: Callable[[Bus, argparse.Namespace], Coroutine[Any, Any, None]],
+) -> Callable[[argparse.Namespace], Coroutine[Any, Any, None]]:
+    """Ensure bus cleanup after function execution.
 
-    can_bus = can.Bus(channel=iface, interface="socketcan")
-    return Bus(can_bus)
+    This decorator wraps async functions that use a CAN bus and ensures
+    that the CAN bus is properly shut down after the function completes,
+    whether it succeeds or raises an exception.
+
+    The decorated function should accept (bus, args) instead of just (args).
+    """
+
+    @wraps(func)
+    async def wrapper(args: argparse.Namespace) -> None:
+        with can.Bus(channel=args.iface, interface="socketcan") as can_bus:
+            bus = Bus(can_bus)
+            await func(bus, args)
+
+    return wrapper
 
 
-async def _enable(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _enable(bus: Bus, args: argparse.Namespace) -> None:
     """Enable motor using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -78,9 +94,9 @@ async def _enable(args: argparse.Namespace) -> None:
     _output_motor_state(state, args.slave_id)
 
 
-async def _disable(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _disable(bus: Bus, args: argparse.Namespace) -> None:
     """Disable motor using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -92,9 +108,9 @@ async def _disable(args: argparse.Namespace) -> None:
     _output_motor_state(state, args.slave_id)
 
 
-async def _set_zero(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _set_zero(bus: Bus, args: argparse.Namespace) -> None:
     """Set motor zero position using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -106,9 +122,9 @@ async def _set_zero(args: argparse.Namespace) -> None:
     _output_motor_state(state, args.slave_id)
 
 
-async def _refresh(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _refresh(bus: Bus, args: argparse.Namespace) -> None:
     """Refresh motor status using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -118,9 +134,9 @@ async def _refresh(args: argparse.Namespace) -> None:
     _output_motor_state(state, args.slave_id)
 
 
-async def _control_mit(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _control_mit(bus: Bus, args: argparse.Namespace) -> None:
     """Control motor in MIT mode using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -144,9 +160,9 @@ async def _control_mit(args: argparse.Namespace) -> None:
     )
 
 
-async def _control_pos_vel(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _control_pos_vel(bus: Bus, args: argparse.Namespace) -> None:
     """Control motor in position/velocity mode using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -163,9 +179,9 @@ async def _control_pos_vel(args: argparse.Namespace) -> None:
     )
 
 
-async def _control_vel(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _control_vel(bus: Bus, args: argparse.Namespace) -> None:
     """Control motor in velocity mode using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -182,9 +198,9 @@ async def _control_vel(args: argparse.Namespace) -> None:
     )
 
 
-async def _control_pos_force(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _control_pos_force(bus: Bus, args: argparse.Namespace) -> None:
     """Control motor in position/force mode using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -204,9 +220,9 @@ async def _control_pos_force(args: argparse.Namespace) -> None:
     )
 
 
-async def _save_parameters(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _save_parameters(bus: Bus, args: argparse.Namespace) -> None:
     """Save motor parameters to flash using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -222,9 +238,9 @@ async def _save_parameters(args: argparse.Namespace) -> None:
 
 
 # High-level Motor class interface functions
-async def _motor_get_param(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _motor_get_param(bus: Bus, args: argparse.Namespace) -> None:
     """Get semantic motor parameter using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
@@ -308,9 +324,9 @@ async def _motor_get_param(args: argparse.Namespace) -> None:
         sys.stdout.write(f"{param_name}: {value}\n")
 
 
-async def _motor_set_param(args: argparse.Namespace) -> None:
+@with_bus_cleanup
+async def _motor_set_param(bus: Bus, args: argparse.Namespace) -> None:
     """Set semantic motor parameter using Motor class."""
-    bus = _create_bus(args.iface)
     motor_type = MotorType(args.motor_type)
     motor = Motor(
         bus, slave_id=args.slave_id, master_id=args.master_id, motor_type=motor_type
