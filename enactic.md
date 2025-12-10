@@ -4,6 +4,10 @@ Enactic's stack is a C++-based control system for OpenArm robots.
 
 ## Setup
 
+## Operating System
+
+Make sure you are running **Ubuntu 24.04**. If not, follow [this installation guide](https://ubuntu.com/tutorials/install-ubuntu-desktop#1-overview) to install Ubuntu 24.04 on your computer.
+
 ### Install Dependencies
 
 Install the following dependencies required to compiles Enactic's stack:
@@ -31,10 +35,10 @@ sudo cmake --install build
 
 ### 2. Compiling KDL Parser Project
 
-Make sure SSH Key is already set up in GitHub (see [setup guide](./setup.md#setup-ssh-key-in-github)), then clone the project and navigate into it:
+Clone the project and navigate into it:
 
 ```bash
-git clone git@github.com:anvil-robotics/kdl-parser.git
+git clone https://github.com/anvil-robotics/kdl-parser.git
 cd kdl-parser
 ```
 
@@ -64,13 +68,7 @@ cmake --build build
 
 ### 4. Preparing OpenArm URDF
 
-Navigate to the `openarm_teleop` project directory and download the URDF file for the teleoperation demos:
-
-```bash
-curl -L -o openarm_bimanual.urdf https://gist.githubusercontent.com/threeal/d499e9d3e0be398bf9d030b7f3df970a/raw/08100a0ca3bcb360bd9d06822981d8a0d5a19d65/openarm_bimanual.urdf
-```
-
-Alternatively, you can generate the URDF file by following the [official guide](https://docs.openarm.dev/software/description/).
+Follow the [official guide](https://docs.openarm.dev/software/description/) to generate the OpenArm URDF file. Alternatively, you can use the pre-generated file located at [urdf/openarm_bimanual.urdf](./urdf/openarm_bimanual.urdf).
 
 ## Running the Demos
 
@@ -78,8 +76,7 @@ Alternatively, you can generate the URDF file by following the [official guide](
 
 1. All robots are **powered on** and connected via USB-CAN devices
 2. All robots are placed in their **resting position**
-3. USB-CAN devices are properly configured with persistent names (see [setup guide](./setup.md#configure-usb-can-devices))
-4. OpenArm Teleop project is **built successfully** and URDF file is **prepared**
+3. OpenArm Teleop project is **built successfully** and URDF file is **prepared**
 
 ### Gravity Compensation Demo
 
