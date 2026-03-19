@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-"""Motor configuration for Damiao motors."""
+"""Motor configuration and shared constants for Damiao motors."""
 
 from dataclasses import dataclass
+from math import pi
 
 from .motor import MotorType
 
@@ -113,3 +114,28 @@ MOTOR_CONFIGS: list[MotorConfig] = [
         max_angle_right=0.0,
     ),
 ]
+
+
+# Per-joint (kp, kd) gains for J1-J8, used in homing, waypoints, and teleop.
+JOINT_GAINS = [
+    (300.0, 30.0),   # Joint 0
+    (150.0, 50.0),   # Joint 1
+    (150.0, 100.0),  # Joint 2
+    (200.0, 50.0),   # Joint 3
+    (40.0, 3.0),     # Joint 4
+    (40.0, 3.0),     # Joint 5
+    (40.0, 3.0),     # Joint 6
+    (4.0, 1.0),      # Joint 7
+]
+
+# Startup homing waypoints executed in series before teleop begins.
+# Each entry is (joint_angles_rad [J1-J8], duration_seconds).
+HOME_WAYPOINTS: list[tuple[list[float], float]] = [
+    ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0.5),
+    ([0.0, 0.0, 0.0, pi / 2, 0.0, 0.0, 0.0, 0.0], 0.5),
+]
+
+FRAME_GAP = 0.0003  # seconds between CAN send/recv pairs
+
+# Hardware button remap: hardware [1,2,3,4] -> logical [1,4,3,2]
+BTN_REMAP = [0, 3, 2, 1]

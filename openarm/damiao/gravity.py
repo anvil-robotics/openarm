@@ -55,13 +55,61 @@ class ArmWithGravity(Arm):
         self.positions = [0.0] * len(motors)  # Position for each motor
 
 
+def patch_model_camera_bodies(model: mujoco.MjModel, ee_T_cam: dict) -> None:
+    """Overwrite camera body pos/quat in a MuJoCo model with calibrated ee_T_cam.
+
+    Args:
+        model: A loaded MuJoCo model to patch in-place.
+        ee_T_cam: dict mapping "left"/"right" to 4x4 ee_T_cam numpy arrays.
+    """
+    for side, T_tcp_cam in ee_T_cam.items():
+        cam_body = f"openarm_{side}_camera"
+        tcp_body = f"openarm_{side}_hand_tcp"
+
+        cam_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, cam_body)
+        tcp_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, tcp_body)
+        if cam_id < 0 or tcp_id < 0:
+            continue
+
+        hand_T_tcp = np.eye(4)
+        hand_T_tcp[:3, 3] = model.body_pos[tcp_id]
+        q = model.body_quat[tcp_id]
+        R = np.empty(9)
+        mujoco.mju_quat2Mat(R, q)
+        hand_T_tcp[:3, :3] = R.reshape(3, 3)
+
+        hand_T_cam = hand_T_tcp @ T_tcp_cam
+
+        model.body_pos[cam_id] = hand_T_cam[:3, 3]
+        quat_cam = np.empty(4)
+        mujoco.mju_mat2Quat(quat_cam, hand_T_cam[:3, :3].flatten())
+        model.body_quat[cam_id] = quat_cam
+
+
 class MuJoCoKDL:
     """A simple class for computing inverse dynamics using MuJoCo."""
 
-    def __init__(self) -> None:
-        """Initialize MuJoCo model for kinematic/dynamic calculations."""
-        self.model = mujoco.MjModel.from_xml_path(str(OPENARM_MODEL_PATH))
+    def __init__(
+        self,
+        model_path: str | None = None,
+        body_mass_overrides: dict[str, float] | None = None,
+    ) -> None:
+        """Initialize MuJoCo model for kinematic/dynamic calculations.
+
+        Args:
+            model_path: Path to the MuJoCo XML model. Defaults to OPENARM_MODEL_PATH.
+            body_mass_overrides: Optional dict mapping body names to new masses (kg).
+                E.g. {"openarm_left_hand": 0.25, "openarm_right_hand": 0.25}
+        """
+        path = model_path or str(OPENARM_MODEL_PATH)
+        self.model = mujoco.MjModel.from_xml_path(path)
         self.model.opt.gravity = np.array([0, 0, -9.81])
+
+        if body_mass_overrides:
+            for body_name, mass in body_mass_overrides.items():
+                body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+                if body_id >= 0:
+                    self.model.body_mass[body_id] = mass
 
         self.data = mujoco.MjData(self.model)
 
@@ -71,6 +119,10 @@ class MuJoCoKDL:
 
         # Disable all joint limit
         self.model.jnt_limited[:] = 0
+
+    def patch_camera_bodies(self, ee_T_cam: dict) -> None:
+        """Overwrite camera body pos/quat with calibrated ee_T_cam transforms."""
+        patch_model_camera_bodies(self.model, ee_T_cam)
 
     def compute_inverse_dynamics(
         self, q: np.ndarray, qdot: np.ndarray, qdotdot: np.ndarray, side: str = "left"
@@ -170,10 +222,19 @@ class MuJoCoKDL:
 class GravityCompensator:
     """Gravity compensation calculator with persistent MuJoCo model."""
 
-    def __init__(self) -> None:
-        """Initialize the gravity compensator with MuJoCo model."""
-        self.kdl = MuJoCoKDL()
-        self.tuning_factors = [0.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+    def __init__(
+        self,
+        model_path: str | None = None,
+        body_mass_overrides: dict[str, float] | None = None,
+    ) -> None:
+        """Initialize the gravity compensator with MuJoCo model.
+
+        Args:
+            model_path: Path to the MuJoCo XML model. Defaults to OPENARM_MODEL_PATH.
+            body_mass_overrides: Optional dict mapping body names to new masses (kg).
+        """
+        self.kdl = MuJoCoKDL(model_path=model_path, body_mass_overrides=body_mass_overrides)
+        self.tuning_factors = [0.8, 0.8, 1.0, 1.0, 0.8, 0.8, 0.8, 0.0]
 
     def compute(self, angles: list[float], position: str = "left") -> list[float]:
         """Compute gravity compensation torques for given joint angles.
@@ -187,7 +248,7 @@ class GravityCompensator:
             List of gravity compensation torques for each joint
 
         """
-        q = np.array(angles)
+        q = np.array(angles[0:7])
 
         gravity_torques = self.kdl.compute_inverse_dynamics(
             q, np.zeros(q.shape), np.zeros(q.shape), side=position

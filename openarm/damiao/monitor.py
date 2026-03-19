@@ -1,6 +1,7 @@
-"""Simple motor angle monitor - disables motors and shows current angles.
+"""Damiao motor monitor and teleoperation controller.
 
-This script disables all Damiao motors and displays their current angles.
+Supports motor monitoring, master-slave teleoperation with gravity compensation,
+trajectory recording/playback, and FoundationPose-guided waypoint execution.
 """
 
 from __future__ import annotations
@@ -9,11 +10,34 @@ import argparse
 import asyncio
 import logging
 import re
-import struct
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
-from math import pi
+
+import can
+import cv2
+import mujoco
+import mujoco.viewer
 import numpy as np
+from scipy.spatial.transform import Rotation as R_scipy
+
+from openarm.bus import Bus
+
+from .button_reader import ButtonReader
+from .calibration import run_calibration
+from .config import BTN_REMAP, FRAME_GAP, JOINT_GAINS, MOTOR_CONFIGS
+from .detect import detect_motors
+from .encoding import (
+    ControlMode,
+    MitControlParams,
+    decode_motor_state_sync,
+    encode_control_mit,
+)
+from .gravity import GravityCompensator
+from .motor import Motor
+from .recording import load_recording, run_playback, save_recording
+from .trajectory import execute_waypoint, home_all_arms
 
 # Platform-specific imports for keyboard input
 try:
@@ -32,33 +56,10 @@ try:
 except ImportError:
     HAS_MSVCRT = False
 
-import can
-
-from openarm.bus import Bus
-
-from .config import MOTOR_CONFIGS
-from .detect import detect_motors
-from .encoding import (
-    ControlMode,
-    MitControlParams,
-    PosVelControlParams,
-    decode_motor_state_sync,
-    encode_control_mit,
-    encode_control_pos_vel,
-)
-from .gravity import GravityCompensator
-from .motor import Motor
-import mujoco
-import serial
-import threading
-import time
-import cv2
-HAS_CV2 = True
-
 try:
     import rclpy
-    from rclpy.node import Node
     from geometry_msgs.msg import PoseStamped
+    from sensor_msgs.msg import JointState
     HAS_ROS2 = True
 except ImportError:
     HAS_ROS2 = False
@@ -75,55 +76,36 @@ FOLLOW_SPEC_PARTS = 4  # MASTER:POSITION:SLAVE:POSITION
 logger = logging.getLogger(__name__)
 
 
-def _pose_to_T(pos: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
-    """Build a 4x4 homogeneous transform from position + MuJoCo quaternion [w,x,y,z]."""
-    T = np.eye(4)
-    T[:3, 3] = pos
-    R = np.zeros(9)
-    import mujoco
-    mujoco.mju_quat2Mat(R, quat_wxyz)
-    T[:3, :3] = R.reshape(3, 3)
-    return T
+from openarm.damiao.transform_utils import (
+    pose_to_T as _pose_to_T,
+    T_inv as _T_inv,
+    ros_pose_to_T as _ros_pose_to_T,
+    T_to_pos_quat as _T_to_pos_quat,
+    quat_to_rpy_deg as _quat_to_rpy_deg,
+    quat_from_rpy_deg as _quat_from_rpy_deg,
+    quat_multiply as _quat_multiply,
+)
 
 
-def _ros_pose_to_T(pose_msg) -> np.ndarray:
-    """Build a 4x4 transform from a ROS geometry_msgs/Pose."""
-    T = np.eye(4)
-    p = pose_msg.position
-    o = pose_msg.orientation
-    T[:3, 3] = [p.x, p.y, p.z]
-    # ROS quaternion: (x,y,z,w) → MuJoCo: (w,x,y,z)
-    quat_wxyz = np.array([o.w, o.x, o.y, o.z])
-    R = np.zeros(9)
-    import mujoco
-    mujoco.mju_quat2Mat(R, quat_wxyz)
-    T[:3, :3] = R.reshape(3, 3)
-    return T
+def load_cam_extrinsics(path: str) -> dict[str, np.ndarray]:
+    """Load calibrated ee_T_cam transforms from a YAML file.
 
-
-def _T_to_pos_quat(T: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Extract position and MuJoCo quaternion [w,x,y,z] from a 4x4 transform."""
-    pos = T[:3, 3].copy()
-    import mujoco
-    quat = np.zeros(4)
-    mujoco.mju_mat2Quat(quat, T[:3, :3].flatten())
-    return pos, quat
-
-
-def _quat_to_rpy_deg(q_wxyz: np.ndarray) -> np.ndarray:
-    """Convert MuJoCo quaternion [w,x,y,z] to roll/pitch/yaw in degrees."""
-    import mujoco
-    R = np.zeros(9)
-    mujoco.mju_quat2Mat(R, q_wxyz)
-    R = R.reshape(3, 3)
-    pitch = np.arcsin(-np.clip(R[2, 0], -1, 1))
-    if np.abs(R[2, 0]) < 0.9999:
-        roll = np.arctan2(R[2, 1], R[2, 2])
-        yaw = np.arctan2(R[1, 0], R[0, 0])
-    else:
-        roll = np.arctan2(-R[1, 2], R[1, 1])
-        yaw = 0.0
-    return np.degrees([roll, pitch, yaw])
+    Returns dict with 'left' and 'right' keys mapping to 4x4 numpy arrays.
+    """
+    import yaml
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    result = {}
+    for side in ("left", "right"):
+        T = np.array(data[side]["ee_T_cam"], dtype=np.float64)
+        result[side] = T
+        method = data[side].get("method", "?")
+        std = data[side].get("board_origin_std_m", 0)
+        sys.stdout.write(
+            f"  Loaded {side} ee_T_cam ({method}, std={std*1000:.1f}mm):\n"
+            f"    t = {T[:3,3]}\n"
+        )
+    return result
 
 
 def check_keyboard_input() -> str | None:
@@ -158,6 +140,13 @@ class Arm:
     def active_count(self) -> int:
         """Count of active motors."""
         return len(self.active_motors)
+
+    def get_positions(self) -> list[float]:
+        """Return current joint positions, 0.0 for missing motors/states."""
+        return [
+            st.position if m is not None and st is not None else 0.0
+            for m, st in zip(self.motors, self.states)
+        ]
 
     async def disable_all_motors(self) -> None:
         """Safely disable all active motors."""
@@ -335,6 +324,12 @@ async def _main(args: argparse.Namespace, can_buses: list[can.BusABC]) -> None: 
                 bus_states.append(None)
         all_state_results.append(bus_states)
 
+    # Load camera extrinsics if provided
+    args.ee_T_cam = {}
+    if args.cam_extrinsics:
+        sys.stdout.write(f"\nLoading camera extrinsics from {args.cam_extrinsics}\n")
+        args.ee_T_cam = load_cam_extrinsics(args.cam_extrinsics)
+
     # Call teleop or monitor based on flag
     if args.teleop:
         await teleop(can_buses, all_bus_motors, all_state_results, args)
@@ -419,9 +414,8 @@ class _FrameVis:
         self._frames: dict[str, np.ndarray] = {}
         self._running = True
         self._thread = None
-        if HAS_CV2:
-            self._thread = threading.Thread(target=self._loop, daemon=True)
-            self._thread.start()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
     def _to_px(self, pos):
         return (int(self.OX + pos[0] * self.SCALE),
@@ -475,13 +469,15 @@ class _FrameVis:
 
 
 class _PoseListener:
-    """Thread-safe container for the latest FoundationPose PoseStamped."""
+    """Thread-safe container for the latest FoundationPose PoseStamped and plane pose."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._pose: PoseStamped | None = None
+        self._pose = None  # type: PoseStamped | None
+        self._plane = None  # type: PoseStamped | None
         self._node = None
         self._thread = None
+        self._joint_pubs = {}  # type: dict[str, tuple]
 
     def start(self):
         if not HAS_ROS2:
@@ -494,15 +490,66 @@ class _PoseListener:
 
         self._node = rclpy.create_node("teleop_pose_listener")
         self._node.create_subscription(
-            PoseStamped, "/foundationpose/pose", self._cb, 1,
+            PoseStamped, "/foundationpose/pose", self._pose_cb, 1,
+        )
+        self._node.create_subscription(
+            PoseStamped, "/foundationpose/plane", self._plane_cb, 1,
         )
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
-        logger.info("Subscribed to /foundationpose/pose")
+        logger.info("Subscribed to /foundationpose/pose and /foundationpose/plane")
 
-    def _cb(self, msg: PoseStamped):
+    def _get_joint_pubs(self, arm_name):
+        """Lazily create commanded/observed/error JointState publishers for an arm."""
+        if arm_name not in self._joint_pubs and self._node is not None:
+            cmd_pub = self._node.create_publisher(
+                JointState, f"/openarm/{arm_name}/joint_commanded", 10)
+            obs_pub = self._node.create_publisher(
+                JointState, f"/openarm/{arm_name}/joint_observed", 10)
+            err_pub = self._node.create_publisher(
+                JointState, f"/openarm/{arm_name}/joint_error", 10)
+            self._joint_pubs[arm_name] = (cmd_pub, obs_pub, err_pub)
+        return self._joint_pubs.get(arm_name)
+
+    def publish_joint_state(self, arm_name, commanded, observed, stamp=None):
+        """Publish commanded, observed, and error joint angles for an arm."""
+        if self._node is None:
+            return
+        pubs = self._get_joint_pubs(arm_name)
+        if pubs is None:
+            return
+        cmd_pub, obs_pub, err_pub = pubs
+        now = self._node.get_clock().now().to_msg()
+
+        n = min(len(commanded), len(observed))
+        joint_names = [f"joint_{i}" for i in range(n)]
+
+        cmd_msg = JointState()
+        cmd_msg.header.stamp = now
+        cmd_msg.name = joint_names
+        cmd_msg.position = [float(v) for v in commanded[:n]]
+
+        obs_msg = JointState()
+        obs_msg.header.stamp = now
+        obs_msg.name = joint_names
+        obs_msg.position = [float(v) for v in observed[:n]]
+
+        err_msg = JointState()
+        err_msg.header.stamp = now
+        err_msg.name = joint_names
+        err_msg.position = [float(o) - float(c) for o, c in zip(observed[:n], commanded[:n])]
+
+        cmd_pub.publish(cmd_msg)
+        obs_pub.publish(obs_msg)
+        err_pub.publish(err_msg)
+
+    def _pose_cb(self, msg):
         with self._lock:
             self._pose = msg
+
+    def _plane_cb(self, msg):
+        with self._lock:
+            self._plane = msg
 
     def _spin(self):
         try:
@@ -511,9 +558,14 @@ class _PoseListener:
             pass
 
     @property
-    def latest(self) -> PoseStamped | None:
+    def latest(self):
         with self._lock:
             return self._pose
+
+    @property
+    def latest_plane(self):
+        with self._lock:
+            return self._plane
 
     def shutdown(self):
         if self._node is not None:
@@ -522,6 +574,49 @@ class _PoseListener:
             rclpy.shutdown()
         except Exception:
             pass
+
+
+class _MuJoCoViewer:
+    """Threaded MuJoCo passive viewer that mirrors real arm joint angles."""
+
+    def __init__(self, ee_T_cam: dict[str, np.ndarray] | None = None):
+        from openarm.damiao.gravity import patch_model_camera_bodies
+        from openarm.simulation.models import OPENARM_MODEL_PATH
+        self._model = mujoco.MjModel.from_xml_path(str(OPENARM_MODEL_PATH))
+        if ee_T_cam:
+            patch_model_camera_bodies(self._model, ee_T_cam)
+        self._data = mujoco.MjData(self._model)
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread = None
+
+    def start(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        with mujoco.viewer.launch_passive(self._model, self._data) as viewer:
+            while viewer.is_running() and self._running:
+                with self._lock:
+                    mujoco.mj_forward(self._model, self._data)
+                viewer.sync()
+                time.sleep(1.0 / 60.0)
+
+    def update(self, left_q=None, right_q=None):
+        """Update displayed joint angles. left_q/right_q are lists of up to 8 floats."""
+        with self._lock:
+            if left_q is not None:
+                n = min(len(left_q), 8)
+                self._data.qpos[0:n] = left_q[:n]
+            if right_q is not None:
+                n = min(len(right_q), 8)
+                self._data.qpos[9:9 + n] = right_q[:n]
+
+    def stop(self):
+        self._running = False
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
 
 
 async def teleop(  # noqa: C901, PLR0912
@@ -538,11 +633,55 @@ async def teleop(  # noqa: C901, PLR0912
     # Live frame visualizer
     frame_vis = _FrameVis()
 
-    # Initialize gravity compensator if enabled
+    # Initialize gravity compensators if enabled
+    # Master uses the default model; slave uses heavier end-effector masses.
+    SLAVE_MASS_OVERRIDES = {
+        "openarm_left_hand": 0.75,
+        "openarm_right_hand": 0.30,
+    }
     gravity_comp = None
+    slave_gravity_comp = None
     if args.gravity:
         sys.stdout.write("Initializing gravity compensation...\n")
         gravity_comp = GravityCompensator()
+        slave_gravity_comp = GravityCompensator(body_mass_overrides=SLAVE_MASS_OVERRIDES)
+        if args.ee_T_cam:
+            gravity_comp.kdl.patch_camera_bodies(args.ee_T_cam)
+            slave_gravity_comp.kdl.patch_camera_bodies(args.ee_T_cam)
+        sys.stdout.write(
+            f"  master model: default masses | slave model: hand mass={SLAVE_MASS_OVERRIDES.get('openarm_left_hand')} kg\n"
+        )
+
+    # MuJoCo viewer for live arm visualization (reuses gravity comp model)
+    mj_viewer = None
+    if gravity_comp is not None:
+        try:
+            mj_viewer = _MuJoCoViewer(ee_T_cam=args.ee_T_cam or None)
+            mj_viewer.start()
+            sys.stdout.write("MuJoCo viewer started\n")
+        except Exception as e:
+            sys.stdout.write(f"MuJoCo viewer not available: {e}\n")
+
+    # PyBullet xArm6 kinematics + visualizer
+    xarm: "XArm6 | None" = None
+    if args.use_xarm:
+        try:
+            from openarm.damiao.kinematics_xarm import XArm6
+            xarm = XArm6(use_gui=True, connect_real=False)
+            if xarm.setup():
+                _pb_init = [0.0, -60.0, -30.0, 0.0, 0.0, -90.0]
+                xarm.set_joints(_pb_init, "left")
+                _pb_init = [0.0, -60.0, -30.0, 0.0, 0.0, 0.0]
+                xarm.set_joints(_pb_init, "right")
+                xarm.step()
+                sys.stdout.write("PyBullet xArm6 visualizer started\n")
+            else:
+                xarm = None
+                sys.stdout.write("PyBullet xArm6 setup failed\n")
+        except Exception as e:
+            sys.stdout.write(f"PyBullet xArm6 not available: {e}\n")
+    
+    
 
     # Create Arm objects for each bus
     arms: list[Arm] = []
@@ -679,13 +818,34 @@ async def teleop(  # noqa: C901, PLR0912
                 f"  {arm.channel}: Enabling motors with "
                 f"Position-Velocity control (slave)\n"
             )
-            #await arm.enable_all_motors(ControlMode.POS_VEL)
             await arm.enable_all_motors(ControlMode.MIT)
         else:  # master
             sys.stdout.write(
                 f"  {arm.channel}: Enabling motors with MIT control (master)\n"
             )
             await arm.enable_all_motors(ControlMode.MIT)
+
+    await home_all_arms(arms)
+
+    # ---- Calibration data collection mode --------------------------------
+    if args.calibrate:
+        if gravity_comp is None:
+            sys.stderr.write("Calibration mode requires --gravity.\n")
+        else:
+            try:
+                await run_calibration(
+                    arms,
+                    waypoint_file=args.calibrate,
+                    output_dir=args.calib_output,
+                    gravity_comp=gravity_comp,
+                    slave_gravity_comp=slave_gravity_comp
+                )
+            finally:
+                sys.stdout.write("\nDisabling ALL motors for safety...\n")
+                for arm in arms:
+                    await arm.disable_all_motors()
+                sys.stdout.write("All motors disabled.\n")
+        return
 
     # Start teleoperation with monitoring display
     sys.stdout.write("\nTeleoperation mode starting...\n\n")
@@ -694,7 +854,7 @@ async def teleop(  # noqa: C901, PLR0912
     num_motors = len(MOTOR_CONFIGS)
 
     # Print stop instruction before entering raw mode
-    stop_msg = "Press 'Q' to stop | X/Y/Z pos hold | Btn1 waypoint | Btn2 ori lock"
+    stop_msg = "Press 'Q' to stop | X/Y/Z pos hold | W save waypoint | Btn1 waypoint | Btn2 ori lock"
     sys.stdout.write(stop_msg + "\n")
 
     # Impedance control state per side.
@@ -733,195 +893,75 @@ async def teleop(  # noqa: C901, PLR0912
         else:
             sys.stdout.write(msg + "\n")
 
-    async def execute_waypoint(
-        waypoints: "list[tuple[list[float], float]]",
-        master_arm: "Arm",
-        slave_arm: "Arm | None",
-        hz: float = 200.0,
-        hold_time: float = 3.0,
-    ) -> None:
-        """Move through a sequence of (joint_angles, duration) waypoints with smooth cubic blending.
-
-        Each segment uses a cubic ease-in-out (smoothstep) from the previous waypoint
-        to the next. A hold phase at the final waypoint is appended automatically.
-        """
-        # Current positions as the implicit first waypoint
-        start_q = []
-        for motor, state in zip(master_arm.motors, master_arm.states):
-            if motor is not None and state is not None:
-                start_q.append(state.position)
-            else:
-                start_q.append(0.0)
-
-        # Build knot sequence: list of (q_target, cumulative_time)
-        all_q = [start_q]
-        seg_durations = []
-        for q_target, dur in waypoints:
-            n = min(len(q_target), len(start_q))
-            all_q.append(list(q_target[:n]) + start_q[n:])
-            seg_durations.append(dur)
-
-        cum_times = [0.0]
-        for d in seg_durations:
-            cum_times.append(cum_times[-1] + d)
-        total_move_time = cum_times[-1]
-        total_time = total_move_time + hold_time
-
-        n_joints = len(start_q)
-        final_q = all_q[-1]
-        dt = 1.0 / hz
-        steps = int(total_time * hz)
-
-        joint_gains = [
-            (150.0, 100.0),
-            (150.0, 100.0),
-            (150.0, 100.0),
-            (150.0, 100.0),
-            (4.0, 2.0),
-            (4.0, 2.0),
-            (4.0, 2.0),
-            (4.0, 2.0),
-        ]
-
-        for step in range(steps + 1):
-            t = step * dt
-
-            if t >= total_move_time:
-                interp_q = list(final_q)
-            else:
-                # Find which segment we're in
-                seg = 0
-                for si in range(len(seg_durations)):
-                    if t < cum_times[si + 1]:
-                        seg = si
-                        break
-                else:
-                    seg = len(seg_durations) - 1
-
-                seg_start = cum_times[seg]
-                seg_dur = seg_durations[seg]
-                alpha = (t - seg_start) / seg_dur if seg_dur > 0 else 1.0
-                alpha = min(max(alpha, 0.0), 1.0)
-                alpha = 3 * alpha**2 - 2 * alpha**3
-
-                q_from = all_q[seg]
-                q_to = all_q[seg + 1]
-                interp_q = [
-                    s + alpha * (e - s) for s, e in zip(q_from, q_to)
-                ]
-
-            # Command master arm
-            for idx, motor in enumerate(master_arm.motors):
-                if motor is None or idx >= n_joints:
-                    continue
-                kp, kd = joint_gains[idx] if idx < len(joint_gains) else (2.0, 1.0)
-                params = MitControlParams(
-                    q=interp_q[idx], dq=0, kp=kp, kd=kd, tau=0,
-                )
-                try:
-                    encode_control_mit(motor._bus, motor._slave_id, motor._motor_limits, params)
-                    time.sleep(FRAME_GAP)
-                    state = decode_motor_state_sync(motor._bus, motor._master_id, motor._motor_limits)
-                    if state is not None:
-                        master_arm.states[idx] = state
-                except Exception:
-                    pass
-
-            # Command slave arm (mirror if needed)
-            if slave_arm is not None:
-                for idx, slave_motor in enumerate(slave_arm.motors):
-                    if slave_motor is None or idx >= n_joints:
-                        continue
-                    pos = interp_q[idx]
-                    if (
-                        slave_arm.mirror_mode
-                        and idx < len(MOTOR_CONFIGS)
-                        and MOTOR_CONFIGS[idx].inverted
-                    ):
-                        pos = -pos
-                    kp, kd = joint_gains[idx] if idx < len(joint_gains) else (2.0, 1.0)
-                    alpha_gain = 2.0
-                    params = MitControlParams(
-                        q=pos, dq=0, kp=kp * alpha_gain, kd=kd * alpha_gain, tau=0,
-                    )
-                    try:
-                        encode_control_mit(slave_motor._bus, slave_motor._slave_id, slave_motor._motor_limits, params)
-                        time.sleep(FRAME_GAP)
-                        state = decode_motor_state_sync(slave_motor._bus, slave_motor._master_id, slave_motor._motor_limits)
-                        if state is not None:
-                            slave_arm.states[idx] = state
-                    except Exception:
-                        pass
-
-            # Print tracking error every 50 steps and on the last step
-            if (step % 50 == 0 or step == steps) and slave_arm is not None and gravity_comp is not None:
-                actual_q = []
-                for motor, st in zip(slave_arm.motors, slave_arm.states):
-                    actual_q.append(st.position if motor is not None and st is not None else 0.0)
-                actual_pos, actual_quat = gravity_comp.forward_kinematics(actual_q[:7], position=slave_arm.position)
-                desired_pos, desired_quat = gravity_comp.forward_kinematics(final_q[:7], position=slave_arm.position)
-                pos_err = desired_pos - actual_pos
-                ori_err = np.zeros(3)
-                tgt_q = desired_quat.copy()
-                if np.dot(tgt_q, actual_quat) < 0:
-                    tgt_q = -tgt_q
-                mujoco.mju_subQuat(ori_err, tgt_q, actual_quat)
-                joint_err_deg = [np.degrees(f - a) for f, a in zip(final_q[:n_joints], actual_q[:n_joints])]
-                joint_err_str = " ".join(f"j{i}={e:.2f}" for i, e in enumerate(joint_err_deg))
-                sys.stdout.write(
-                    f"\r  step {step}/{steps}  "
-                    f"pos_err: dx={pos_err[0]*1000:.1f} dy={pos_err[1]*1000:.1f} dz={pos_err[2]*1000:.1f} mm  "
-                    f"ori_err: r={np.degrees(ori_err[0]):.1f} p={np.degrees(ori_err[1]):.1f} y={np.degrees(ori_err[2]):.1f} deg  "
-                    f"q_err(deg): {joint_err_str}"
-                    f"\033[K\r\n"
-                )
-                sys.stdout.flush()
-
-            await asyncio.sleep(dt)
-
-    FRAME_GAP = 0.0003
-
     # Arduino button reader (non-blocking via background thread)
-    button_state = [0, 0, 0, 0]
-    _button_lock = threading.Lock()
-
-    def _serial_reader():
-        try:
-            ser = serial.Serial("/dev/ttyACM0", 115200, timeout=0.05)
-            while True:
-                line = ser.readline().decode("utf-8", errors="ignore").strip()
-                if not line:
-                    continue
-                parts = line.split()
-                if len(parts) == 4:
-                    try:
-                        vals = [int(p) for p in parts]
-                        with _button_lock:
-                            button_state[:] = vals
-                    except ValueError:
-                        pass
-        except Exception as e:
-            logger.warning("Serial reader failed: %s", e)
-
-    _serial_thread = threading.Thread(target=_serial_reader, daemon=True)
-    _serial_thread.start()
+    btn_reader = ButtonReader()
     _prev_buttons = [0, 0, 0, 0]
+
+    # ── Recording / Playback state ─────────────────────────────────────
+    _recording = False
+    _record_buf: list[dict[str, list[float]]] = []
+    _record_file = args.record
+    _rec_slaves = sorted(
+        [arm for arm in arms if arm.is_slave],
+        key=lambda a: a.position,
+    )
+    _rec_sides = [a.position for a in _rec_slaves]
+    _rec_n_joints = [len(a.motors) for a in _rec_slaves]
+
+    # ── Calibration waypoint recording ────────────────────────────────
+    _wp_file = args.waypoints
+    _wp_buf: list[list[float]] = []  # each entry: 16 floats (8 left + 8 right)
+
+    _playback_frames: "list[dict[str, list[float]]]" = []
+    _playback_arm_map: "dict[str, Arm]" = {}
+
+    if args.playback:
+        sys.stdout.write(f"\n=== PLAYBACK MODE: {args.playback} ===\n")
+        pb_sides, pb_nj, _playback_frames = load_recording(args.playback)
+        if not _playback_frames:
+            sys.stdout.write("Recording file is empty — nothing to play.\n")
+        else:
+            sys.stdout.write(
+                f"Loaded {len(_playback_frames)} frames, "
+                f"arms: {', '.join(f'{s}({n}j)' for s, n in zip(pb_sides, pb_nj))}\n"
+            )
+            side_to_slave = {a.position: a for a in arms if a.is_slave}
+            for s in pb_sides:
+                if s in side_to_slave:
+                    _playback_arm_map[s] = side_to_slave[s]
+                else:
+                    sys.stdout.write(f"  WARNING: no slave arm for recorded side '{s}' — skipping\n")
+
+            if not _playback_arm_map:
+                sys.stdout.write("No matching slave arms — cannot play back.\n")
+
+        sys.stdout.write("\nEntering main loop (press p to play, q to quit)\n")
 
     try:
         # Small initial delay to ensure display is ready
         await asyncio.sleep(0.1)
 
-        loop_count = 0
-        start_time = time.time()
-        last_loop_time = start_time
-        while True:
+        # Rate-limited slave command tracking: max joint velocity enforced every tick.
+        # Keyed by slave channel -> list of last commanded positions (None = uninitialised).
+        _slave_cmd_pos: dict[str, list] = {}
 
-            # print time taken for this loop iteration in the last column
+        # xArm6 ↔ master arm offset mapping (populated once arms settle)
+        # side -> (T_master_init_inv, T_pb_init)
+        _xarm_offsets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        _xarm_last_q: dict[str, np.ndarray] = {}  # side -> last IK solution (for joint-jump check)
+
+        loop_count = 0
+        last_loop_time = time.time()
+        while True:
+            if loop_count < 500:
+                SLAVE_MAX_VEL = 0.5  # rad/s — max joint velocity for slave tracking
+            else:
+                SLAVE_MAX_VEL = 10.0  # rad/s — max joint velocity for slave tracking
+
             loop_start = time.time()
             loop_time = loop_start - last_loop_time
             last_loop_time = loop_start
 
-            
             loop_count += 1
             # Check for key presses
             if raw_mode:
@@ -929,6 +969,39 @@ async def teleop(  # noqa: C901, PLR0912
                 if key == "q":
                     raw_print("\nStopping teleoperation...")
                     break
+                elif key == "p" and _playback_frames and _playback_arm_map:
+                    raw_print(f"\n  Replaying {len(_playback_frames)} frames ...\n")
+                    run_playback(
+                        _playback_frames, _playback_arm_map,
+                        gravity_comp=gravity_comp,
+                        slave_gravity_comp=slave_gravity_comp,
+                    )
+                    await home_all_arms(arms, skip_first=True)
+                    _slave_cmd_pos.clear()
+                    raw_print(f"\n  Playback done — press p to replay, q to quit\n")
+                elif key == "r" and _record_file is not None:
+                    if not _recording:
+                        _record_buf.clear()
+                        _recording = True
+                        raw_print(f"\n  Recording STARTED → {_record_file}\n")
+                    else:
+                        _recording = False
+                        save_recording(_record_buf, _record_file, _rec_sides, _rec_n_joints)
+                        raw_print(f"\n  Recording STOPPED ({len(_record_buf)} frames)\n")
+                elif key == "w" and _wp_file is not None:
+                    left_q = [0.0] * 8
+                    right_q = [0.0] * 8
+                    for arm in arms:
+                        if arm.is_slave and arm.position == "left":
+                            left_q = arm.get_positions()[:8]
+                        elif arm.is_slave and arm.position == "right":
+                            right_q = arm.get_positions()[:8]
+                    _wp_buf.append(left_q + right_q)
+                    raw_print(
+                        f"\n  Waypoint {len(_wp_buf)} saved"
+                        f"  L=[{left_q[0]:.3f},{left_q[1]:.3f},{left_q[2]:.3f},{left_q[3]:.3f},...]"
+                        f"  R=[{right_q[0]:.3f},{right_q[1]:.3f},{right_q[2]:.3f},{right_q[3]:.3f},...]\n"
+                    )
                 elif key in _KEY_TO_AXIS:
                     axis = _KEY_TO_AXIS[key]
                     any_was_on = any(axis in sp for sp in impedance_setpoints.values())
@@ -941,13 +1014,11 @@ async def teleop(  # noqa: C901, PLR0912
                     raw_print(f"\n  Impedance {_AXIS_LABEL[axis]} {state}\n")
 
             # Check for button presses (rising edge)
-            # Remap: hardware [1,2,3,4] → logical [1,4,3,2]
-            _BTN_REMAP = [0, 3, 2, 1]
-            with _button_lock:
-                btns_raw = button_state[:]
-            btns = [btns_raw[_BTN_REMAP[i]] for i in range(4)]
+            btns_raw = btn_reader.state
+            btns = [btns_raw[BTN_REMAP[i]] for i in range(4)]
             for i in range(4):
                 if btns[i] and not _prev_buttons[i]:
+                    arm_of_choice = "right"
                     if i == 0:
                         # Button 1: move gripper to FoundationPose target
                         fp_pose = pose_listener.latest
@@ -956,37 +1027,40 @@ async def teleop(  # noqa: C901, PLR0912
                         elif gravity_comp is None:
                             raw_print(f"\n  Button 1: gravity comp not enabled\n")
                         else:
-                            left_master = None
-                            left_slave = None
+                            chosen_master = None
+                            chosen_slave = None
                             for arm in arms:
-                                if arm.is_master and arm.position == "left":
-                                    left_master = arm
-                                if arm.is_slave and arm.position == "left":
-                                    left_slave = arm
+                                if arm.is_master and arm.position == arm_of_choice:
+                                    chosen_master = arm
+                                if arm.is_slave and arm.position == arm_of_choice:
+                                    chosen_slave = arm
 
-                            if left_slave is None:
-                                raw_print(f"\n  Button 1: no left follower arm\n")
+                            if chosen_slave is None:
+                                raw_print(f"\n  Button 1: no {arm_of_choice} follower arm\n")
                             else:
-                                cur_q = []
-                                for motor, st in zip(left_slave.motors, left_slave.states):
-                                    if motor is not None and st is not None:
-                                        cur_q.append(st.position)
-                                    else:
-                                        cur_q.append(0.0)
+                                cur_q = chosen_slave.get_positions()
 
-                                # T_world_tcp and T_world_camera from current joint angles
+                                camera_body = f"openarm_{arm_of_choice}_camera"
+
+                                # T_world_cam = T_world_tcp @ T_tcp_cam
                                 tcp_pos, tcp_quat = gravity_comp.forward_kinematics(
-                                    cur_q[:7], position="left",
+                                    cur_q[:7], position=arm_of_choice,
                                 )
                                 cam_pos, cam_quat = gravity_comp.kdl.compute_body_pose(
-                                    np.array(cur_q[:7]), "openarm_left_camera", side="left",
+                                    np.array(cur_q[:7]), camera_body, side=arm_of_choice,
                                 )
                                 T_world_tcp = _pose_to_T(tcp_pos, tcp_quat)
-                                T_world_cam = _pose_to_T(cam_pos, cam_quat)
+                                T_world_cam_direct = _pose_to_T(cam_pos, cam_quat)
+                                T_tcp_cam = _T_inv(T_world_tcp) @ T_world_cam_direct
+
+                                # additional finger length
+                                T_finger_length = np.eye(4)
+                                T_finger_length[2, 3] = 0.03
+                                T_world_tcp = T_world_tcp @ T_finger_length
+                                T_world_cam = T_world_tcp @ T_tcp_cam
 
                                 # T_camera_object from FoundationPose
                                 T_cam_obj = _ros_pose_to_T(fp_pose.pose)
-                                
 
                                 T_world_obj = T_world_cam @ T_cam_obj
 
@@ -994,26 +1068,18 @@ async def teleop(  # noqa: C901, PLR0912
                                 # (name, obj_T_wp, duration, gripper_angle)
                                 obj_T_wps = []
                                 wp1 = np.eye(4)
-                                wp1[2, 3] = -0.05
-                                wp1[1, 3] = 0.02
-                                obj_T_wps.append(("approach", wp1, 1.5, None))
+                                wp1[0, 3] = -0.02
+                                obj_T_wps.append(("approach", wp1, 1.0, -0.7))
 
                                 wp2 = np.eye(4)
-                                wp2[2, 3] = -0.05
-                                wp2[1, 3] = 0.02
-                                obj_T_wps.append(("approach", wp2, 0.25, -0.1))
+                                wp2[0, 3] = -0.08
+                                obj_T_wps.append(("approach", wp2, 0.25, -0.7))
 
                                 wp3 = np.eye(4)
-                                wp3[2, 3] = -0.1
-                                wp3[1, 3] = 0.02
-                                obj_T_wps.append(("approach", wp3, 0.5, -0.1))
+                                wp3[0, 3] = -0.08
+                                obj_T_wps.append(("approach", wp3, 0.25, -0.1))
 
-                                wp4 = np.eye(4)
-                                wp4[2, 3] = -0.1
-                                wp4[1, 3] = 0.02
-                                obj_T_wps.append(("approach", wp4, 0.25, -0.7))
-
-                                raw_print(f"\n  Button 1: move to FPose target ({len(obj_T_wps)} waypoints)")
+                                raw_print(f"\n  Button 1: move {arm_of_choice} to FPose target ({len(obj_T_wps)} waypoints)")
                                 raw_print(f"    Current TCP: [{tcp_pos[0]:.3f}, {tcp_pos[1]:.3f}, {tcp_pos[2]:.3f}]")
                                 raw_print(f"    Object (cam): x={fp_pose.pose.position.x:.3f} y={fp_pose.pose.position.y:.3f} z={fp_pose.pose.position.z:.3f}")
 
@@ -1026,24 +1092,57 @@ async def teleop(  # noqa: C901, PLR0912
                                     target_pos, target_quat = _T_to_pos_quat(T_world_wp)
 
                                     raw_print(f"    WP {wp_idx}/{len(obj_T_wps)-1} '{wp_name}': [{target_pos[0]:.3f}, {target_pos[1]:.3f}, {target_pos[2]:.3f}]")
+                                    target_quat = tcp_quat
+                                    right_side_up_quat = [  0, 0.7071068, 0, 0.7071068]
 
+                                    # best angles -45 and 135
+                                    #if target is below -15 go straight if target is above 105 go straight.
+                                    # if target is between -15 and 105 go to best angles, then if closer to -15, go -20, if closer to 105, go 20.
+
+           
+
+                                    # Object RPY in a frame where X=up(Z), Y=forward(X), Z=left(Y)
+                                    R_perm = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]], dtype=float)
+                                    R_obj_world = T_world_obj[:3, :3]
+                                    R_obj_reframed = R_perm @ R_obj_world
+                                    T_reframed = np.eye(4)
+                                    T_reframed[:3, :3] = R_obj_reframed
+                                    rpy_obj_xup = _quat_to_rpy_deg(_T_to_pos_quat(T_reframed)[1])
+
+
+                                    additional_yaw_x_rotation = 0.0
+                                    if rpy_obj_xup[0] > -15 and rpy_obj_xup[0] < 105:
+                                        #if closer to -15, go -20, if closer to 105, go 20.
+                                        if rpy_obj_xup[0] < 45:
+                                            additional_yaw_x_rotation = 20.0
+                                        else:
+                                            additional_yaw_x_rotation = -20.0
+                                        
+                                    added_quat = _quat_from_rpy_deg(additional_yaw_x_rotation, 0, 0)
+                                    right_side_up_quat = _quat_multiply(right_side_up_quat, added_quat)
+
+                                    
+                                    target_quat = right_side_up_quat
                                     target_q = gravity_comp.inverse_kinematics(
                                         target_pos=target_pos,
                                         target_quat=target_quat,
                                         seed_angles=seed_q,
-                                        position="left",
+                                        position=arm_of_choice,
                                     )
 
                                     verify_pos, verify_quat = gravity_comp.forward_kinematics(
-                                        list(target_q), position="left",
+                                        list(target_q), position=arm_of_choice,
                                     )
                                     pos_err = np.linalg.norm(verify_pos - target_pos)
                                     ori_err_vec = np.zeros(3)
                                     vq = verify_quat.copy()
-                                    if np.dot(vq, target_quat) < 0:
-                                        vq = -vq
-                                    mujoco.mju_subQuat(ori_err_vec, target_quat, vq)
-                                    rot_err = np.degrees(np.linalg.norm(ori_err_vec))
+                                    if target_quat is not None:
+                                        if np.dot(vq, target_quat) < 0:
+                                            vq = -vq
+                                        mujoco.mju_subQuat(ori_err_vec, target_quat, vq)
+                                        rot_err = np.degrees(np.linalg.norm(ori_err_vec))
+                                    else:
+                                        rot_err = 0.0
                                     raw_print(f"      IK err: {pos_err*1000:.1f} mm, {rot_err:.1f} deg")
                                     if pos_err > 0.02 or rot_err > 15.0:
                                         raw_print(f"      WARNING: IK error too large, aborting sequence\n")
@@ -1060,28 +1159,85 @@ async def teleop(  # noqa: C901, PLR0912
                                     total_dur = sum(d for _, d in ik_waypoints)
                                     raw_print(f"    Executing smooth trajectory ({total_dur:.1f}s, {len(ik_waypoints)} segments)...")
                                     await execute_waypoint(
-                                        ik_waypoints, left_master, left_slave,
+                                        ik_waypoints, chosen_master, chosen_slave,
+                                        gravity_comp=gravity_comp,
+                                        slave_gravity_comp=slave_gravity_comp,
                                         hz=200.0,
                                     )
 
-                                    side_sp = impedance_setpoints.get("left", {})
+                                    if chosen_slave is not None and chosen_slave.channel in _slave_cmd_pos:
+                                        _slave_cmd_pos[chosen_slave.channel] = chosen_slave.get_positions()
+
+                                    side_sp = impedance_setpoints.get(arm_of_choice, {})
                                     for axis in (0, 1, 2):
                                         if axis in side_sp:
                                             side_sp[axis] = float(target_pos[axis])
-                                    if impedance_lock_ori.get("left", False):
-                                        impedance_ori_quats["left"] = target_quat.copy()
+                                    if impedance_lock_ori.get(arm_of_choice, False):
+                                        impedance_ori_quats[arm_of_choice] = target_quat.copy()
                                     raw_print(f"    All waypoints reached — resuming teleop\n")
                                 else:
                                     raw_print(f"    Sequence aborted\n")
                     elif i == 1:
                         # Button 2: toggle orientation lock
+                        # If ON -> turn OFF. If OFF -> try plane, fall back to TCP pose.
                         was_on = any(impedance_lock_ori.values())
-                        for side in impedance_lock_ori:
-                            impedance_lock_ori[side] = not was_on
-                            if was_on:
+                        if was_on:
+                            for side in impedance_lock_ori:
+                                impedance_lock_ori[side] = False
                                 impedance_ori_quats[side] = None
-                        state = "OFF" if was_on else "ON"
-                        raw_print(f"\n  Button 2: orientation lock {state}\n")
+                            raw_print(f"\n  Button 2: orientation lock OFF\n")
+                        else:
+                            locked_to_plane = False
+                            plane_msg = pose_listener.latest_plane if pose_listener else None
+                            if plane_msg is not None and gravity_comp is not None:
+                                arm_for_lock = next(
+                                    (a for a in arms if a.position == "left" and a.is_slave),
+                                    next((a for a in arms if a.position == "left"), None),
+                                )
+                                if arm_for_lock is not None:
+                                    cur_q_lock = arm_for_lock.get_positions()
+                                    T_cam_plane = _ros_pose_to_T(plane_msg.pose)
+                                    cam_pos_tmp, cam_quat = gravity_comp.kdl.compute_body_pose(
+                                        np.array(cur_q_lock[:7]), "openarm_left_camera", side="left",
+                                    )
+                                    T_world_cam = _pose_to_T(cam_pos_tmp, cam_quat)
+                                    T_world_plane = T_world_cam @ T_cam_plane
+                                    _, plane_quat_world = _T_to_pos_quat(T_world_plane)
+
+                                    _, tcp_quat = gravity_comp.forward_kinematics(
+                                        cur_q_lock[:7], position="left",
+                                    )
+                                    ori_err = np.zeros(3)
+                                    pq = plane_quat_world.copy()
+                                    if np.dot(pq, tcp_quat) < 0:
+                                        pq = -pq
+                                    mujoco.mju_subQuat(ori_err, pq, tcp_quat)
+                                    angle_deg = np.degrees(np.linalg.norm(ori_err))
+
+                                    if angle_deg <= 15.0:
+                                        impedance_lock_ori["left"] = True
+                                        impedance_ori_quats["left"] = plane_quat_world
+                                        locked_to_plane = True
+                                        raw_print(f"\n  Button 2: orientation lock ON (plane, {angle_deg:.1f} deg)\n")
+                                    else:
+                                        raw_print(f"\n  Button 2: plane ori too far ({angle_deg:.1f} deg) — not locked\n")
+
+                            if not locked_to_plane:
+                                raw_print(f"\n  Button 2: no valid plane — not locked\n")
+                    elif i == 2:
+                        # Button 3: replay loaded playback sequence
+                        if _playback_frames and _playback_arm_map:
+                            raw_print(f"\n  Button 3: replaying {len(_playback_frames)} frames ...\n")
+                            run_playback(
+                                _playback_frames, _playback_arm_map,
+                                gravity_comp=gravity_comp,
+                                slave_gravity_comp=slave_gravity_comp,
+                            )
+                            await home_all_arms(arms, skip_first=True)
+                            _slave_cmd_pos.clear()
+                            raw_print(f"\n  Playback done — press button 3 to replay\n")
+                        else:
+                            raw_print(f"\n  Button 3: no playback loaded\n")
                     else:
                         raw_print(f"\n  Button {i+1} pressed\n")
             _prev_buttons[:] = btns
@@ -1099,12 +1255,10 @@ async def teleop(  # noqa: C901, PLR0912
             # --- Prepare master arm tasks ---
             # Pre-compute gravity for each master (cheap, CPU-only)
             master_gravity = {}  # channel -> (combined_torques, active_indices)
-            
             for master_arm in master_arms.values():
                 gravity_torques = None
                 active_indices = []
 
-                t_gravity_start = time.time()
                 if gravity_comp and master_arm.position in ["left", "right"]:
                     active_positions = []
                     active_velocities = []
@@ -1154,9 +1308,24 @@ async def teleop(  # noqa: C901, PLR0912
                                 for g, i in zip(gravity_torques, imp_torques)
                             ]
 
-                t_gravity_end = time.time()
-
                 master_gravity[master_arm.channel] = (gravity_torques, active_indices)
+
+            # Pre-compute gravity for each slave arm
+            slave_gravity: dict[str, tuple] = {}
+            _s_gc = slave_gravity_comp or gravity_comp
+            for s_arm in [arm for arm in arms if arm.is_slave]:
+                grav = None
+                s_active = []
+                if _s_gc and s_arm.position in ["left", "right"]:
+                    for idx, (motor, state) in enumerate(zip(s_arm.motors, s_arm.states)):
+                        if motor is not None and state:
+                            s_active.append(idx)
+                    s_positions = s_arm.get_positions()
+                    if s_positions:
+                        grav = _s_gc.compute(
+                            s_positions, position=s_arm.position,
+                        )
+                slave_gravity[s_arm.channel] = (grav, s_active)
 
             # --- Define per-arm BLOCKING workers (run in threads) ---
             def run_master_arm_sync(m_arm: Arm) -> list:
@@ -1198,13 +1367,19 @@ async def teleop(  # noqa: C901, PLR0912
                         logger.debug("MIT recv failed: %s", e)
                 return results
 
-            def run_slave_arm_sync(s_arm: Arm, m_arm: Arm) -> list:
-                """Run PosVel control for all motors on one slave arm (blocking, same bus).
+            SLAVE_GRAV_THRESH = 10000.05  # rad — add grav comp when |delta_q| below this
 
-                Uses pipelined send/recv: send ALL commands first, then read ALL responses.
-                """
-                # Phase 1: Send ALL commands as fast as possible
-                active_motors = []  # (index, slave_motor) pairs
+            def run_slave_arm_sync(s_arm: Arm, m_arm: Arm) -> list:
+                """Run MIT control for all motors on one slave arm with rate-limited tracking."""
+                # Initialise command tracker on first call
+                if s_arm.channel not in _slave_cmd_pos:
+                    _slave_cmd_pos[s_arm.channel] = s_arm.get_positions()
+                cmd = _slave_cmd_pos[s_arm.channel]
+                max_delta = SLAVE_MAX_VEL * loop_time if loop_time > 0 else 0.0025
+
+                grav_torques, grav_indices = slave_gravity.get(s_arm.channel, (None, []))
+
+                active_motors = []
                 results = [None] * len(s_arm.motors)
 
                 for idx, (slave_motor, master_state) in enumerate(
@@ -1213,41 +1388,31 @@ async def teleop(  # noqa: C901, PLR0912
                     if slave_motor is None or master_state is None:
                         continue
                     try:
-                        position = master_state.position
+                        target = master_state.position
                         if (
                             s_arm.mirror_mode
                             and idx < len(MOTOR_CONFIGS)
                             and MOTOR_CONFIGS[idx].inverted
                         ):
-                            position = -position
+                            target = -target
 
-                        # params = PosVelControlParams(
-                        #     position=position, velocity=args.velocity
-                        # )
-                        # encode_control_pos_vel(slave_motor._bus, slave_motor._slave_id, params)
+                        # Rate-limit: clamp delta to max_delta
+                        delta = target - cmd[idx]
+                        delta = max(-max_delta, min(max_delta, delta))
+                        cmd[idx] += delta
 
-                        # Per-joint MIT control gains
-                        #Kp: [240.0, 240.0, 240.0, 240.0, 24.0, 31.0, 25.0, 16.0]
-                        #Kd: [3.0, 3.0, 3.0, 3.0, 0.2, 0.2, 0.2, 0.2]
-                        joint_gains = [
-                            (150.0, 100.0),   # Joint 0: kp=240, kd=3
-                            (150.0, 100.0),   # Joint 1: kp=240, kd=3
-                            (150.0, 100.0),   # Joint 2: kp=240, kd=3
-                            (150.0, 100.0),   # Joint 3: kp=240, kd=3
-                            (4.0, 2.0),    # Joint 4: kp=24, kd=0.2
-                            (4.0, 2.0),    # Joint 5: kp=31, kd=0.2
-                            (4.0, 2.0),    # Joint 6: kp=25, kd=0.2
-                            (4.0, 2.0),    # Joint 7: kp=16, kd=0.2
-                        ]
-                        kp, kd = joint_gains[idx]
+                        kp, kd = JOINT_GAINS[idx] if idx < len(JOINT_GAINS) else (2.0, 1.0)
 
-                        # scale gains by alpha
-                        alpha = 1.5  # You can adjust this to increase/decrease responsiveness
-                        kp *= alpha
-                        kd *= alpha
-                        
+                        torque = 0.0
+                        if grav_torques and idx in grav_indices:
+                            cur_pos = s_arm.states[idx].position if s_arm.states[idx] is not None else 0.0
+                            if abs(cmd[idx] - cur_pos) < SLAVE_GRAV_THRESH:
+                                gi = grav_indices.index(idx)
+                                if gi < len(grav_torques):
+                                    torque = grav_torques[gi]
+
                         params = MitControlParams(
-                            q=position, dq=0, kp=kp, kd=kd, tau=0,
+                            q=cmd[idx], dq=0, kp=kp, kd=kd, tau=torque,
                         )
                         encode_control_mit(slave_motor._bus, slave_motor._slave_id, slave_motor._motor_limits, params)
                         time.sleep(FRAME_GAP)
@@ -1274,8 +1439,6 @@ async def teleop(  # noqa: C901, PLR0912
                 return results
 
             # --- Run all arms concurrently across buses using threads ---
-            t_control_start = time.time()
-
             # Phase 1: Run ALL master arms concurrently (different buses)
             master_tasks = []
             master_arm_refs = []
@@ -1288,8 +1451,6 @@ async def teleop(  # noqa: C901, PLR0912
                 master_results = await asyncio.gather(*master_tasks)
                 for m_arm, result in zip(master_arm_refs, master_results):
                     m_arm.states = result
-
-            t_master_end = time.time()
 
             # Phase 2: Run ALL slave arms concurrently (they now have fresh master states)
             slave_tasks = []
@@ -1305,21 +1466,124 @@ async def teleop(  # noqa: C901, PLR0912
                 for s_arm, result in zip(slave_arm_refs, slave_results):
                     s_arm.states = result
 
-            t_control_end = time.time()
+            # Capture master arm states (setpoints) for recording, keyed by slave side
+            if _recording and slave_arm_refs:
+                frame: dict[str, list[float]] = {}
+                for s_arm in slave_arm_refs:
+                    m_arm = master_arms.get(s_arm.follows)
+                    if m_arm is None:
+                        continue
+                    frame[s_arm.position] = m_arm.get_positions()
+                _record_buf.append(frame)
+
+            # Update MuJoCo viewer with leader arm joint angles
+            if mj_viewer is not None:
+                left_q_viz = None
+                right_q_viz = None
+                for m_arm in master_arm_refs:
+                    q = m_arm.get_positions()
+                    if m_arm.position == "left":
+                        left_q_viz = q
+                    elif m_arm.position == "right":
+                        right_q_viz = q
+                mj_viewer.update(left_q=left_q_viz, right_q=right_q_viz)
+
+            # xArm6 relative-motion mapping from master arms
+            if xarm is not None and gravity_comp is not None:
+                SETTLE_COUNT = 500
+
+                # Capture offset poses once arms have settled
+                if loop_count == SETTLE_COUNT and not _xarm_offsets:
+                    for m_arm in master_arm_refs:
+                        side = m_arm.position
+                        q_rad = m_arm.get_positions()[:7]
+                        m_pos, m_quat = gravity_comp.forward_kinematics(q_rad, position=side)
+                        T_master_init = _pose_to_T(m_pos, m_quat)
+                        T_master_init_inv = _T_inv(T_master_init)
+
+                        pb_q_deg = xarm.get_joints(side)
+                        pb_pos, pb_quat = xarm.fk(pb_q_deg, arm=side)
+                        T_pb_init = np.eye(4)
+                        T_pb_init[:3, 3] = pb_pos
+                        T_pb_init[:3, :3] = R_scipy.from_quat(pb_quat).as_matrix()
+
+                        _xarm_offsets[side] = (T_master_init_inv, T_pb_init)
+                        _xarm_last_q[side] = pb_q_deg
+                        xarm.set_rest(side, pb_q_deg)
+                        raw_print(f"  xArm6 {side}: offset captured")
+
+                # Apply relative motion every iteration after offsets are captured
+                if _xarm_offsets:
+                    for m_arm in master_arm_refs:
+                        side = m_arm.position
+                        if side not in _xarm_offsets:
+                            continue
+                        T_master_init_inv, T_pb_init = _xarm_offsets[side]
+
+                        q_rad = m_arm.get_positions()[:7]
+                        m_pos, m_quat = gravity_comp.forward_kinematics(q_rad, position=side)
+                        T_master_now = _pose_to_T(m_pos, m_quat)
+
+                        T_delta = T_master_init_inv @ T_master_now
+                        T_pb_target = T_pb_init @ T_delta
+
+                        target_pos = T_pb_target[:3, 3]
+                        target_quat = R_scipy.from_matrix(T_pb_target[:3, :3]).as_quat()  # xyzw
+
+                        t_ik_start = time.time()
+                        ik_q = xarm.ik_safe(
+                            target_pos, target_quat,
+                            seed_deg=_xarm_last_q[side], arm=side,
+                        )
+                        t_ik_ms = (time.time() - t_ik_start) * 1000.0
+                        if ik_q is not None:
+                            _xarm_last_q[side] = ik_q
+                            xarm.set_joints(ik_q, arm=side)
+                            master_grip = m_arm.states[7].position if m_arm.states[7] is not None else 0.0
+                            grip_xarm = max(0.0, min(850.0, abs(master_grip) / 0.785 * 850.0))
+                            xarm.send_to_real(ik_q, gripper_pos=grip_xarm, arm=side)
+                        else:
+                            xarm.set_joints(_xarm_last_q[side], arm=side)
+
+                        if loop_count % 200 == 0:
+                            raw_print(f"  xArm6 {side} IK: {t_ik_ms:.1f}ms")
+                    xarm.step()
+
+            # Publish joint states to ROS 2
+            if pose_listener and HAS_ROS2:
+                for m_arm in master_arm_refs:
+                    observed = m_arm.get_positions()
+                    commanded = [0.0] * len(observed)
+                    arm_name = f"master_{m_arm.position}"
+                    pose_listener.publish_joint_state(arm_name, commanded, observed)
+
+                for s_arm, m_arm_name in [(sa, sa.follows) for sa in slave_arm_refs]:
+                    m_arm = master_arms.get(m_arm_name)
+                    observed = s_arm.get_positions()
+                    commanded = []
+                    for idx, ms in enumerate(m_arm.states if m_arm else []):
+                        pos = ms.position if ms is not None else 0.0
+                        if (
+                            s_arm.mirror_mode
+                            and idx < len(MOTOR_CONFIGS)
+                            and MOTOR_CONFIGS[idx].inverted
+                        ):
+                            pos = -pos
+                        commanded.append(pos)
+                    arm_name = f"follower_{s_arm.position}"
+                    pose_listener.publish_joint_state(arm_name, commanded, observed)
 
             # Print pose and update visualizer
             fp_pose = pose_listener.latest
-            left_slave = next(
-                (a for a in arms if a.is_slave and a.position == "left"), None,
+            right_slave = next(
+                (a for a in arms if a.is_slave and a.position == "right"), None,
             )
-            if fp_pose is not None and gravity_comp is not None and left_slave is not None:
-                cur_q = []
-                for motor, st in zip(left_slave.motors, left_slave.states):
-                    cur_q.append(st.position if motor is not None and st is not None else 0.0)
+            if fp_pose is not None and gravity_comp is not None and right_slave is not None:
+                cur_q = right_slave.get_positions()
 
-                tcp_pos, tcp_quat = gravity_comp.forward_kinematics(cur_q[:7], position="left")
+                tcp_pos, tcp_quat = gravity_comp.forward_kinematics(cur_q[:7], position="right")
                 cam_pos, cam_quat = gravity_comp.kdl.compute_body_pose(
-                    np.array(cur_q[:7]), "openarm_left_camera", side="left",
+                    np.array(cur_q[:7]), "openarm_right_camera", side="right",
                 )
                 T_world_tcp = _pose_to_T(tcp_pos, tcp_quat)
                 T_world_cam = _pose_to_T(cam_pos, cam_quat)
@@ -1330,11 +1594,20 @@ async def teleop(  # noqa: C901, PLR0912
                 rpy_tcp = _quat_to_rpy_deg(tcp_quat)
                 rpy_obj = _quat_to_rpy_deg(_T_to_pos_quat(T_world_obj)[1])
 
+                # Object RPY in a frame where X=up(Z), Y=forward(X), Z=left(Y)
+                R_perm = np.array([[0, 0, 1], [0, -1, 0], [1, 0, 0]], dtype=float)
+                R_obj_world = T_world_obj[:3, :3]
+                R_obj_reframed = R_perm @ R_obj_world
+                T_reframed = np.eye(4)
+                T_reframed[:3, :3] = R_obj_reframed
+                rpy_obj_xup = _quat_to_rpy_deg(_T_to_pos_quat(T_reframed)[1])
+
                 pose_str = (
                     f"  tcp_T_obj: x={obj_in_tcp[0]:.3f} y={obj_in_tcp[1]:.3f} z={obj_in_tcp[2]:.3f}"
                     f"  |  world_obj: x={obj_in_world[0]:.3f} y={obj_in_world[1]:.3f} z={obj_in_world[2]:.3f}"
                     f"  |  TCP rpy: [{rpy_tcp[0]:.1f}, {rpy_tcp[1]:.1f}, {rpy_tcp[2]:.1f}]"
                     f"  |  Obj rpy: [{rpy_obj[0]:.1f}, {rpy_obj[1]:.1f}, {rpy_obj[2]:.1f}]"
+                    f"  |  Obj rpy(Xup): [{rpy_obj_xup[0]:.1f}, {rpy_obj_xup[1]:.1f}, {rpy_obj_xup[2]:.1f}]"
                 )
                 frame_vis.update(TCP=T_world_tcp, CAM=T_world_cam, OBJ=T_world_obj)
             elif fp_pose is not None:
@@ -1354,6 +1627,19 @@ async def teleop(  # noqa: C901, PLR0912
             raw_print("\nTeleoperation stopped.")
 
     finally:
+        # Auto-save recording if still active
+        if _recording and _record_buf and _record_file:
+            _recording = False
+            save_recording(_record_buf, _record_file, _rec_sides, _rec_n_joints)
+
+        # Save calibration waypoints if any were captured
+        if _wp_buf and _wp_file:
+            with open(_wp_file, "w") as f:
+                f.write("# Calibration waypoints (left_j0..j7 right_j0..j7)\n")
+                for wp in _wp_buf:
+                    f.write(" ".join(f"{v:.6f}" for v in wp) + "\n")
+            sys.stdout.write(f"Saved {len(_wp_buf)} waypoints → {_wp_file}\n")
+
         # Restore terminal settings first
         if old_settings is not None and HAS_TERMIOS:
             try:
@@ -1369,6 +1655,8 @@ async def teleop(  # noqa: C901, PLR0912
 
         pose_listener.shutdown()
         frame_vis.close()
+        if xarm is not None:
+            xarm.disconnect()
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -1415,6 +1703,83 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Velocity parameter for slave motors (default: 1.0)",
+    )
+
+    parser.add_argument(
+        "--record",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Enable recording mode. Slave joint angles are saved to FILE on exit or button press.",
+    )
+
+    parser.add_argument(
+        "--playback",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Playback mode: load a recorded sequence from FILE, home to the first frame, then replay it on the slave arms. Skips normal teleop.",
+    )
+
+    parser.add_argument(
+        "--use-xarm",
+        action="store_true",
+        default=False,
+        help="Use PyBullet xArm6 visualizer and real xArm6 arms",
+    )
+
+    parser.add_argument(
+        "--waypoints",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help=(
+            "Record calibration waypoints.  Press 'w' during teleop to snapshot "
+            "current slave arm positions as a waypoint.  Saved to FILE on exit "
+            "(16 values per line: 8 left + 8 right).  Use with --calibrate later."
+        ),
+    )
+
+    parser.add_argument(
+        "--calibrate",
+        type=str,
+        default=None,
+        metavar="WAYPOINT_FILE",
+        help=(
+            "Calibration data collection mode.  Moves slave arms through waypoints "
+            "from WAYPOINT_FILE, captures images from ROS 2 camera topics, and saves "
+            "body_T_ee poses to an output directory.  Requires --gravity and --follow."
+        ),
+    )
+    parser.add_argument(
+        "--calib-output",
+        type=str,
+        default="calib_data",
+        metavar="DIR",
+        help="Output directory for calibration data (default: calib_data).",
+    )
+    parser.add_argument(
+        "--calib-left-topic",
+        type=str,
+        default="/camera_left/infra1/image_rect_raw",
+        help="ROS 2 image topic for left arm camera.",
+    )
+    parser.add_argument(
+        "--calib-right-topic",
+        type=str,
+        default="/camera_right/infra1/image_rect_raw",
+        help="ROS 2 image topic for right arm camera.",
+    )
+
+    parser.add_argument(
+        "--cam-extrinsics",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help=(
+            "Path to ee_T_cam.yaml (produced by calibrate_extrinsics.py). "
+            "Loads calibrated ee_T_cam transforms for left/right cameras."
+        ),
     )
 
     return parser.parse_args()

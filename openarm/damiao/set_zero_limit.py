@@ -154,12 +154,25 @@ async def set_zero(
             # Set to PosVel control mode
             await motor.set_control_mode(ControlMode.POS_VEL)
 
-            # Move to calculated position
+            # Move to calculated position, looping until error is small
             params = PosVelControlParams(position=target_pos_rad, velocity=1.0)
-            await motor.control_pos_vel(params)
-
-            # Small delay to reach position
-            await asyncio.sleep(2)
+            tol_rad = 0.0005  # ~0.3 deg
+            max_iters = 400
+            for it in range(max_iters):
+                state = await motor.control_pos_vel(params)
+                err = abs(state.position - target_pos_rad)
+                if it % 20 == 0 or err < tol_rad:
+                    err_deg = err * 180 / pi
+                    sys.stdout.write(
+                        f"\r  {config.name}: err={err_deg:6.2f}° "
+                        f"(pos={state.position * 180 / pi:7.2f}° "
+                        f"target={target_pos_deg:7.2f}°)"
+                    )
+                    sys.stdout.flush()
+                if err < tol_rad:
+                    break
+                await asyncio.sleep(0.01)
+            sys.stdout.write("\r\n")
 
             # Disable motor (required for set_zero_position)
             await motor.disable()

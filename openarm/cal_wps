@@ -1,0 +1,9 @@
+# Calibration waypoints (radians)
+# 8 values  = same angles for both arms
+# 16 values = left_j0..left_j7  right_j0..right_j7
+0.0 0.0 0.0 1.5708 0.0 0.0 0.0 0.0
+0.5 -0.2 0.0 1.5708 0.1 0.0 0.0 0.0
+-0.25 -0.2 0.0 1.5708 0.1 0.0 0.0 0.0
+-0.25 0.2 0.0 1.5708 0.1 0.0 0.0 0.0
+# unique left/right example:
+0.3 -0.1 0.0 1.5708 0.0 0.0 0.0 0.0  -0.3 -0.1 0.0 1.5708 0.0 0.0 0.0 0.0

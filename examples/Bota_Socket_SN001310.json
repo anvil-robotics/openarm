@@ -1,0 +1,34 @@
+{
+  "driver_config": {
+    "product_name": "BFT-ROKS-IND2-B4",
+    "serial_number": "SN001310",
+    "communication_interface_name": "Bota_Socket",
+    "communication_interface_params": {
+      "sensor_ip_address": "192.168.1.24"
+    },
+    "sensor_operation_params": {
+      "app_mode": 1,
+      "app_submode": 20,
+      "wrench_offset": {
+        "fx": -1.324414,
+        "fy": -1.596327,
+        "fz": 11.12215,
+        "tx": 0.012159,
+        "ty": 0.032715,
+        "tz": -0.127199
+      },
+      "temperature_coefficients": {
+        "fx": 0,
+        "fy": 0,
+        "fz": 0,
+        "tx": 0,
+        "ty": 0,
+        "tz": 0
+      }
+    },
+    "driver_operation_params": {
+      "runtime_verbosity": true,
+      "register_with_daemon": true
+    }
+  }
+}
