@@ -1,7 +1,10 @@
 """Damiao motor monitor and teleoperation controller.
 
 Supports motor monitoring, master-slave teleoperation with gravity compensation,
-trajectory recording/playback, and FoundationPose-guided waypoint execution.
+trajectory recording/playback, FoundationPose-guided waypoint execution, and
+SpaceMouse Cartesian control of the **left** master+slave pair (key ``d``, needs
+``--gravity`` and spacenavd; puck buttons adjust trans/rot gains; keys ``x,y,z,r,p,w``
+toggle axes while SpaceMouse mode is on).
 """
 
 from __future__ import annotations
@@ -42,6 +45,22 @@ from .hardware import (
 )
 from .motor import Motor
 from .recording import load_recording, run_playback, save_recording
+from .spacemouse_ctrl import (
+    DEFAULT_GAIN_ROT,
+    DEFAULT_GAIN_TRANS,
+    GAIN_ROT_MAX,
+    GAIN_ROT_MIN,
+    GAIN_STEP,
+    GAIN_TRANS_MAX,
+    GAIN_TRANS_MIN,
+    SpacemouseReader,
+    clip_q_arm7,
+    damped_twist_to_dq,
+    joint_limits_left7,
+    normalized_effective_axes,
+    spacemouse_to_twist,
+)
+from .spacemouse_teleop_gui import SpacemouseTeleopGui, SpacemouseTeleopSharedState
 from .trajectory import execute_waypoint, home_all_arms
 
  
@@ -1212,7 +1231,7 @@ async def teleop(  # noqa: C901, PLR0912
     num_motors = len(MOTOR_CONFIGS)
 
     # Print stop instruction before entering raw mode
-    stop_msg = "Q stop | X/Y/Z hold | I impedance | V vr-track | W save wp | Btn1 FPose | Btn2 ArUco | Btn4 register"
+    stop_msg = "Q stop | D SpaceMouse | X/Y/Z hold | I impedance | V vr-track | W save wp | Btn1 FPose | Btn2 ArUco | Btn4 register"
     sys.stdout.write(stop_msg + "\n")
 
     # Impedance control state per side.
@@ -1329,12 +1348,198 @@ async def teleop(  # noqa: C901, PLR0912
             last_loop_time = loop_start
             
             loop_count += 1
+
             # Check for key presses
             if raw_mode:
                 key = check_keyboard_input()
                 if key == "q":
                     raw_print("\nStopping teleoperation...")
                     break
+                elif key == "d":
+                    if gravity_comp is None:
+                        raw_print("\n  SpaceMouse mode needs --gravity\n")
+                    else:
+                        _sm_lm = next((a for a in arms if a.is_master and a.position == "left"), None)
+                        _sm_ls = next((a for a in arms if a.is_slave and a.position == "left"), None)
+                        if _sm_lm is None or _sm_ls is None:
+                            raw_print("\n  SpaceMouse mode needs a left master and left slave arm\n")
+                        else:
+                            _sm_reader = SpacemouseReader()
+                            _sm_reader.start()
+                            for _ in range(30):
+                                if _sm_reader.connected:
+                                    break
+                                await asyncio.sleep(0.02)
+                            if not _sm_reader.connected:
+                                err = _sm_reader.error or "unknown"
+                                raw_print(f"\n  SpaceMouse: cannot connect ({err})\n")
+                                _sm_reader.stop()
+                            else:
+                                _sm_gain_t = DEFAULT_GAIN_TRANS
+                                _sm_gain_r = DEFAULT_GAIN_ROT
+                                _sm_axis_on: list[bool] = [True] * 6
+                                _sm_prev_btn = (0, 0)
+                                _sm_q_m = (_sm_lm.get_positions() + [0.0] * 8)[:8]
+                                _sm_q_s = (_sm_ls.get_positions() + [0.0] * 8)[:8]
+                                _sm_cmd = list(_sm_ls.get_positions())
+                                _sm_lo, _sm_hi = joint_limits_left7(gravity_comp)
+                                _sm_sgc = slave_gravity_comp or gravity_comp
+
+                                _sm_gui_st: SpacemouseTeleopSharedState | None = None
+                                _sm_gui: SpacemouseTeleopGui | None = None
+                                if args.spacemouse_gui:
+                                    _sm_gui_st = SpacemouseTeleopSharedState()
+                                    _sm_axis_on = _sm_gui_st.axis_on
+                                    _sm_gui = SpacemouseTeleopGui(_sm_gui_st)
+                                    _sm_gui.start()
+
+                                raw_print(
+                                    f"\n  SpaceMouse LEFT pair ON "
+                                    f"(trans={_sm_gain_t:.3f} rot={_sm_gain_r:.3f}; "
+                                    f"x/y/z/r/p/w toggle axes; d to exit)\n",
+                                )
+
+                                _sm_t0 = time.time()
+                                while True:
+                                    _sm_t1 = time.time()
+                                    _sm_dt = max(_sm_t1 - _sm_t0, 1e-4)
+                                    _sm_t0 = _sm_t1
+
+                                    _sm_k = check_keyboard_input()
+                                    if _sm_k == "d" or _sm_k == "q":
+                                        break
+                                    if _sm_k in ("x", "y", "z", "r", "p", "w"):
+                                        _ax = {"x": 0, "y": 1, "z": 2, "r": 3, "p": 4, "w": 5}[_sm_k]
+                                        _sm_axis_on[_ax] = not _sm_axis_on[_ax]
+                                        raw_print(
+                                            f"\n  SpaceMouse axis {_sm_k} -> "
+                                            f"{'ON' if _sm_axis_on[_ax] else 'OFF'}\n",
+                                        )
+
+                                    samp = _sm_reader.get_sample()
+                                    b0 = samp.buttons[0] if len(samp.buttons) > 0 else 0
+                                    b1 = samp.buttons[1] if len(samp.buttons) > 1 else 0
+                                    if b0 and not _sm_prev_btn[0]:
+                                        _sm_gain_t = min(GAIN_TRANS_MAX, _sm_gain_t * GAIN_STEP)
+                                        _sm_gain_r = min(GAIN_ROT_MAX, _sm_gain_r * GAIN_STEP)
+                                    if b1 and not _sm_prev_btn[1]:
+                                        _sm_gain_t = max(GAIN_TRANS_MIN, _sm_gain_t / GAIN_STEP)
+                                        _sm_gain_r = max(GAIN_ROT_MIN, _sm_gain_r / GAIN_STEP)
+                                    _sm_prev_btn = (b0, b1)
+
+                                    if _sm_gui_st is not None:
+                                        with _sm_gui_st.lock:
+                                            _sm_ax = _sm_gui_st.axis_on[:]
+                                    else:
+                                        _sm_ax = _sm_axis_on[:]
+
+                                    twist = spacemouse_to_twist(samp, _sm_ax, _sm_gain_t, _sm_gain_r)
+                                    qm_now = np.array(_sm_lm.get_positions()[:7], dtype=np.float64)
+                                    qs_now = np.array(_sm_ls.get_positions()[:7], dtype=np.float64)
+                                    Jm = gravity_comp.kdl.compute_jacobian(qm_now, "left")
+                                    Js = _sm_sgc.kdl.compute_jacobian(qs_now, "left")
+                                    dqm = damped_twist_to_dq(Jm, twist) * _sm_dt
+                                    dqs = damped_twist_to_dq(Js, twist) * _sm_dt
+                                    _sm_q_m[:7] = clip_q_arm7(
+                                        np.asarray(_sm_q_m[:7], dtype=np.float64) + dqm,
+                                        _sm_lo, _sm_hi,
+                                    ).tolist()
+                                    _sm_q_s[:7] = clip_q_arm7(
+                                        np.asarray(_sm_q_s[:7], dtype=np.float64) + dqs,
+                                        _sm_lo, _sm_hi,
+                                    ).tolist()
+
+                                    if len(_sm_lm.motors) > 7 and len(_sm_q_m) > 7:
+                                        _sm_q_m[7] = _sm_lm.get_positions()[7]
+                                        _tgt_g = _sm_q_m[7]
+                                        if (
+                                            _sm_ls.mirror_mode
+                                            and len(MOTOR_CONFIGS) > 7
+                                            and MOTOR_CONFIGS[7].inverted
+                                        ):
+                                            _tgt_g = -_tgt_g
+                                        _sm_q_s[7] = _tgt_g
+
+                                    m_grav = gravity_comp.compute(
+                                        _sm_lm.get_positions(), position="left",
+                                    )
+                                    for mi, mot in enumerate(_sm_lm.motors):
+                                        if mot is None:
+                                            continue
+                                        tau = m_grav[mi] if mi < len(m_grav) else 0.0
+                                        if mi < 7:
+                                            kp, kd = JOINT_GAINS[mi] if mi < len(JOINT_GAINS) else (2.0, 1.0)
+                                            p = MitControlParams(
+                                                q=_sm_q_m[mi], dq=0, kp=kp, kd=kd, tau=tau,
+                                            )
+                                        else:
+                                            p = MitControlParams(q=0, dq=0, kp=0, kd=0, tau=tau)
+                                        try:
+                                            encode_control_mit(
+                                                mot._bus, mot._slave_id, mot._motor_limits, p,
+                                            )
+                                            time.sleep(FRAME_GAP)
+                                            st = decode_motor_state_sync(
+                                                mot._bus, mot._master_id, mot._motor_limits,
+                                            )
+                                            if st is not None:
+                                                _sm_lm.states[mi] = st
+                                        except Exception:
+                                            pass
+
+                                    s_grav = _sm_sgc.compute(
+                                        _sm_ls.get_positions(), position="left",
+                                    )
+                                    _sm_maxd = 10.0 * _sm_dt
+                                    for si, smot in enumerate(_sm_ls.motors):
+                                        if smot is None:
+                                            continue
+                                        tgt = _sm_q_s[si] if si < len(_sm_q_s) else 0.0
+                                        if (
+                                            _sm_ls.mirror_mode
+                                            and si < len(MOTOR_CONFIGS)
+                                            and MOTOR_CONFIGS[si].inverted
+                                        ):
+                                            tgt = -tgt
+                                        d = tgt - _sm_cmd[si]
+                                        d = max(-_sm_maxd, min(_sm_maxd, d))
+                                        _sm_cmd[si] += d
+                                        kp, kd = JOINT_GAINS[si] if si < len(JOINT_GAINS) else (2.0, 1.0)
+                                        tau = s_grav[si] if si < len(s_grav) else 0.0
+                                        p = MitControlParams(
+                                            q=_sm_cmd[si], dq=0, kp=kp, kd=kd, tau=tau,
+                                        )
+                                        try:
+                                            encode_control_mit(
+                                                smot._bus, smot._slave_id, smot._motor_limits, p,
+                                            )
+                                            time.sleep(FRAME_GAP)
+                                            st = decode_motor_state_sync(
+                                                smot._bus, smot._master_id, smot._motor_limits,
+                                            )
+                                            if st is not None:
+                                                _sm_ls.states[si] = st
+                                        except Exception:
+                                            pass
+
+                                    if _sm_gui_st is not None:
+                                        eff = normalized_effective_axes(
+                                            samp, _sm_ax, _sm_gain_t, _sm_gain_r,
+                                        )
+                                        _sm_gui_st.monitor_publish(
+                                            samp, eff, True, _sm_reader.connected,
+                                            _sm_reader.error, _sm_gain_t, _sm_gain_r,
+                                            append_history=True,
+                                        )
+
+                                    await asyncio.sleep(0.001)
+
+                                if _sm_ls.channel in _slave_cmd_pos:
+                                    _slave_cmd_pos[_sm_ls.channel] = _sm_ls.get_positions()
+                                _sm_reader.stop()
+                                if _sm_gui is not None:
+                                    _sm_gui.stop()
+                                raw_print("\n  SpaceMouse LEFT pair OFF (leader-follower restored)\n")
                 elif key == "p" and _playback_frames and _playback_arm_map:
                     raw_print(f"\n  Replaying {len(_playback_frames)} frames ...\n")
                     run_playback(
@@ -2322,7 +2527,9 @@ async def teleop(  # noqa: C901, PLR0912
                 for idx, (slave_motor, master_state) in enumerate(
                     zip(s_arm.motors, m_arm.states)
                 ):
-                    if slave_motor is None or master_state is None:
+                    if slave_motor is None:
+                        continue
+                    if master_state is None:
                         continue
                     try:
                         target = master_state.position
@@ -2712,6 +2919,16 @@ def parse_arguments() -> argparse.Namespace:
         help=(
             "Path to servo_calib.yaml (Kalibr pinhole format). "
             "Enables ArUco detection on the servo camera stream."
+        ),
+    )
+
+    parser.add_argument(
+        "--spacemouse-gui",
+        action="store_true",
+        default=False,
+        help=(
+            "Open a Tk window (like spacemouse_test.py) for SpaceMouse: gains, axes, "
+            "history plots. Requires --teleop. Use with spacenavd; press d for left-pair mode."
         ),
     )
 
