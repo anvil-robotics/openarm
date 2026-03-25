@@ -319,8 +319,8 @@ class GravityCompensator:
         for i in range(n):
             jid = joint_offset + i
             if self.kdl.model.jnt_limited[jid]:
-                joint_lo[i] = self.kdl.model.jnt_range[jid, 0]
-                joint_hi[i] = self.kdl.model.jnt_range[jid, 1]
+                joint_lo[i] = self.kdl.model.jnt_range[jid, 0] + 0.2
+                joint_hi[i] = self.kdl.model.jnt_range[jid, 1] - 0.2
             else:
                 joint_lo[i] = -np.pi
                 joint_hi[i] = np.pi
@@ -419,6 +419,56 @@ class GravityCompensator:
             ori_err_world = R_tcp.reshape(3, 3) @ ori_err_body
 
             wrench[3:6] = rot_stiffness * ori_err_world
+
+        jac = self.kdl.compute_jacobian(q, side=position)
+        tau = jac.T @ wrench
+        return tau.tolist()
+
+    def impedance_torques_6d(
+        self,
+        angles: list[float],
+        target_pos: np.ndarray,
+        target_quat: np.ndarray,
+        position: str = "left",
+        trans_stiffness: np.ndarray | None = None,
+        rot_stiffness: np.ndarray | None = None,
+    ) -> list[float]:
+        """Impedance torques with independent per-axis stiffness.
+
+        Args:
+            angles: Current joint angles in radians.
+            target_pos: Desired TCP position [x, y, z] in metres.
+            target_quat: Desired TCP orientation [w, x, y, z].
+            position: "left" or "right" arm.
+            trans_stiffness: Stiffness per translational axis [kx, ky, kz] (N/m).
+            rot_stiffness: Stiffness per rotational axis [kr, kp, ky] (N·m/rad).
+
+        Returns:
+            List of impedance joint torques (same length as *angles*).
+        """
+        q = np.array(angles)
+        tcp_pos, tcp_quat = self.kdl.compute_forward_kinematics(q, side=position)
+
+        if trans_stiffness is None:
+            trans_stiffness = np.zeros(3)
+        if rot_stiffness is None:
+            rot_stiffness = np.zeros(3)
+        trans_k = np.asarray(trans_stiffness, dtype=np.float64)
+        rot_k = np.asarray(rot_stiffness, dtype=np.float64)
+
+        wrench = np.zeros(6)
+        wrench[:3] = trans_k * (np.asarray(target_pos) - tcp_pos)
+
+        if np.any(rot_k > 0):
+            tgt = np.asarray(target_quat, dtype=np.float64).copy()
+            if np.dot(tgt, tcp_quat) < 0:
+                tgt = -tgt
+            ori_err_body = np.zeros(3)
+            mujoco.mju_subQuat(ori_err_body, tgt, tcp_quat)
+            R_tcp = np.zeros(9)
+            mujoco.mju_quat2Mat(R_tcp, tcp_quat)
+            ori_err_world = R_tcp.reshape(3, 3) @ ori_err_body
+            wrench[3:6] = rot_k * ori_err_world
 
         jac = self.kdl.compute_jacobian(q, side=position)
         tau = jac.T @ wrench

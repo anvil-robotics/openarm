@@ -118,8 +118,8 @@ MOTOR_CONFIGS: list[MotorConfig] = [
 
 # Per-joint (kp, kd) gains for J1-J8, used in homing, waypoints, and teleop.
 JOINT_GAINS = [
-    (300.0, 30.0),   # Joint 0
-    (150.0, 50.0),   # Joint 1
+    (250.0, 30.0),   # Joint 0
+    (150.0, 30.0),   # Joint 1
     (150.0, 100.0),  # Joint 2
     (200.0, 50.0),   # Joint 3
     (40.0, 3.0),     # Joint 4
@@ -130,9 +130,9 @@ JOINT_GAINS = [
 
 # Startup homing waypoints executed in series before teleop begins.
 # Each entry is (joint_angles_rad [J1-J8], duration_seconds).
-HOME_WAYPOINTS: list[tuple[list[float], float]] = [
-    ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0.5),
-    ([0.0, 0.0, 0.0, pi / 2, 0.0, 0.0, 0.0, 0.0], 0.5),
+HOME_WAYPOINTS: list[tuple] = [
+    ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 4.0, 0.3),
+    ([0.0, 0.0, 0.0, pi / 2, 0.0, 0.0, 0.0, 0.0], 5.0, 1.0),
 ]
 
 FRAME_GAP = 0.0003  # seconds between CAN send/recv pairs

@@ -15,7 +15,7 @@ from .encoding import (
 
 if TYPE_CHECKING:
     from .gravity import GravityCompensator
-    from .monitor import Arm
+    from .hardware import Arm
 
 
 def save_recording(

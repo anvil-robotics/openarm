@@ -40,7 +40,7 @@ from .transform_utils import T_inv, pose_to_T
 
 if TYPE_CHECKING:
     from .gravity import GravityCompensator
-    from .monitor import Arm
+    from .hardware import Arm
 
 try:
     import rclpy
