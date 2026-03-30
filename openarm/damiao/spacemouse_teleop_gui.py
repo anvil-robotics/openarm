@@ -196,7 +196,7 @@ class SpacemouseTeleopGui:
         toggle_frame.pack(fill=tk.X, pady=(0, 6))
         inner = tk.Frame(toggle_frame)
         inner.pack(anchor=tk.W)
-        for i, (lab, col) in enumerate(zip(AXIS_LABELS, PLOT_COLORS, strict=True)):
+        for i, (lab, col) in enumerate(zip(AXIS_LABELS, PLOT_COLORS)):
             f = tk.Frame(inner)
             f.pack(side=tk.LEFT, padx=6)
             tk.Label(f, text=lab, font=("Monospace", 9), fg=col).pack()
