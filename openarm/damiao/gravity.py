@@ -55,16 +55,29 @@ class ArmWithGravity(Arm):
         self.positions = [0.0] * len(motors)  # Position for each motor
 
 
+_SIDE_TO_CAM_BODY = {
+    "left": "openarm_left_camera",
+    "right": "openarm_right_camera",
+    "servo": "openarm_left_servo_camera",
+}
+
+_SIDE_TO_TCP_BODY = {
+    "left": "openarm_left_hand_tcp",
+    "right": "openarm_right_hand_tcp",
+    "servo": "openarm_left_hand_tcp",
+}
+
+
 def patch_model_camera_bodies(model: mujoco.MjModel, ee_T_cam: dict) -> None:
     """Overwrite camera body pos/quat in a MuJoCo model with calibrated ee_T_cam.
 
     Args:
         model: A loaded MuJoCo model to patch in-place.
-        ee_T_cam: dict mapping "left"/"right" to 4x4 ee_T_cam numpy arrays.
+        ee_T_cam: dict mapping "left"/"right"/"servo" to 4x4 ee_T_cam numpy arrays.
     """
     for side, T_tcp_cam in ee_T_cam.items():
-        cam_body = f"openarm_{side}_camera"
-        tcp_body = f"openarm_{side}_hand_tcp"
+        cam_body = _SIDE_TO_CAM_BODY.get(side, f"openarm_{side}_camera")
+        tcp_body = _SIDE_TO_TCP_BODY.get(side, f"openarm_{side}_hand_tcp")
 
         cam_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, cam_body)
         tcp_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, tcp_body)
@@ -196,6 +209,28 @@ class MuJoCoKDL:
             Jacobian of shape (6, len(q)).
 
         """
+        return self.compute_jacobian_body(
+            q, f"openarm_{side}_hand_tcp", side=side,
+        )
+
+    def compute_jacobian_body(
+        self,
+        q: np.ndarray,
+        body_name: str,
+        side: str = "left",
+    ) -> np.ndarray:
+        """Compute the 6 x n_joints Jacobian for an arbitrary body.
+
+        Rows 0-2 are translational, rows 3-5 are rotational (world frame).
+
+        Args:
+            q: Joint angles in radians.
+            body_name: MuJoCo body name (e.g. "openarm_left_servo_camera").
+            side: "left" or "right" — selects which arm's joint columns.
+
+        Returns:
+            Jacobian of shape (6, len(q)).
+        """
         assert side in ("left", "right"), "side must be 'left' or 'right'"
         length = len(q)
         joint_indices = slice(0, length) if side == "left" else slice(9, 9 + length)
@@ -206,15 +241,13 @@ class MuJoCoKDL:
 
         mujoco.mj_forward(self.model, self.data)
 
-        tcp_name = f"openarm_{side}_hand_tcp"
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, tcp_name)
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
 
         nv = self.model.nv
-        jacp = np.zeros((3, nv))  # translational
-        jacr = np.zeros((3, nv))  # rotational
+        jacp = np.zeros((3, nv))
+        jacr = np.zeros((3, nv))
         mujoco.mj_jacBody(self.model, self.data, jacp, jacr, body_id)
 
-        # Extract only the columns for this arm's joints
         jac_indices = slice(0, length) if side == "left" else slice(9, 9 + length)
         return np.vstack([jacp[:, jac_indices], jacr[:, jac_indices]])
 

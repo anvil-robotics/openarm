@@ -69,12 +69,18 @@ def _T_to_list(T: np.ndarray) -> list[list[float]]:
 # ---------------------------------------------------------------------------
 
 class _ImageListener:
-    """Subscribe to two ROS 2 Image topics and keep the latest frame from each."""
+    """Subscribe to ROS 2 Image topics and keep the latest frame from each."""
 
-    def __init__(self, left_topic: str, right_topic: str) -> None:
+    def __init__(
+        self,
+        left_topic: str,
+        right_topic: str,
+        servo_topic: str,
+    ) -> None:
         self._lock = threading.Lock()
         self._left: np.ndarray | None = None
         self._right: np.ndarray | None = None
+        self._servo: np.ndarray | None = None
         self._node = None
 
         if not HAS_ROS2:
@@ -85,24 +91,27 @@ class _ImageListener:
             rclpy.init()
 
         self._node = rclpy.create_node("calib_image_listener")
-        sensor_qos = QoSProfile(
+        sensor_qos_realsense = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST,
             depth=3,
         )
         self._left_sub = self._node.create_subscription(
-            Image, left_topic, self._left_cb, sensor_qos
+            Image, left_topic, self._left_cb, sensor_qos_realsense
         )
         self._right_sub = self._node.create_subscription(
-            Image, right_topic, self._right_cb, sensor_qos
+            Image, right_topic, self._right_cb, sensor_qos_realsense
+        )
+        self._servo_sub = self._node.create_subscription(
+            Image, servo_topic, self._servo_cb, 1
         )
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
         sys.stdout.write(
-            f"Subscribed to images: {left_topic}, {right_topic}\n"
+            f"Subscribed to images: {left_topic}, {right_topic}, {servo_topic}\n"
         )
 
     @staticmethod
@@ -132,33 +141,36 @@ class _ImageListener:
         with self._lock:
             self._right = self._image_msg_to_cv(msg)
 
+    def _servo_cb(self, msg: "Image") -> None:
+        with self._lock:
+            self._servo = self._image_msg_to_cv(msg)
+
     def _spin(self) -> None:
         try:
             self._executor.spin()
         except Exception:
             pass
 
-    def grab(self) -> tuple[np.ndarray | None, np.ndarray | None]:
-        """Return the latest (left_image, right_image) pair."""
+    def grab(self) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        """Return the latest ``(left, right, servo)`` image triple."""
         with self._lock:
             left = self._left.copy() if self._left is not None else None
             right = self._right.copy() if self._right is not None else None
-        return left, right
+            servo = self._servo.copy() if self._servo is not None else None
+        return left, right, servo
 
     def wait_for_images(self, timeout: float = 15.0) -> bool:
-        """Block until at least one image arrives on each topic (or timeout)."""
+        """Block until at least one image arrives on each topic."""
         if self._node is None:
             return False
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._lock:
-                got_left = self._left is not None
-                got_right = self._right is not None
-            if got_left and got_right:
-                return True
+                if self._left is not None and self._right is not None and self._servo is not None:
+                    return True
             time.sleep(0.1)
         with self._lock:
-            return self._left is not None and self._right is not None
+            return self._left is not None and self._right is not None and self._servo is not None
 
     def shutdown(self) -> None:
         if hasattr(self, "_executor") and self._executor is not None:
@@ -214,7 +226,8 @@ async def run_calibration(  # noqa: PLR0912, C901
     slave_gravity_comp: "GravityCompensator | None" = None,
     left_image_topic: str = "/camera_left/infra1/image_rect_raw",
     right_image_topic: str = "/camera_right/infra1/image_rect_raw",
-    settle_ms: int = 1500,
+    servo_image_topic: str = "/camera_visual_servo/image_raw",
+    settle_ms: int = 1000,
     move_hz: float = 300.0,
     move_dur: float = 0.5,
 ) -> None:
@@ -248,6 +261,8 @@ async def run_calibration(  # noqa: PLR0912, C901
         img_dir = out / side / "images"
         img_dir.mkdir(parents=True, exist_ok=True)
         side_dirs[side] = out / side
+    servo_img_dir = out / "servo" / "images"
+    servo_img_dir.mkdir(parents=True, exist_ok=True)
     sys.stdout.write(f"Output directory: {out}\n")
 
     # -- Compute fixed body_T_arm transforms (arm base at zero config) -----
@@ -263,18 +278,22 @@ async def run_calibration(  # noqa: PLR0912, C901
     sys.stdout.write("Computed body_T_arm transforms\n")
 
     # -- Start image listener ----------------------------------------------
-    img_listener = _ImageListener(left_image_topic, right_image_topic)
+    img_listener = _ImageListener(
+        left_image_topic, right_image_topic, servo_image_topic,
+    )
     sys.stdout.write("Waiting for camera images (up to 15s) ...")
     sys.stdout.flush()
     if img_listener.wait_for_images(timeout=15.0):
         sys.stdout.write(" OK\n")
     else:
-        left, right = img_listener.grab()
+        left, right, servo = img_listener.grab()
         missing = []
         if left is None:
             missing.append(f"left ({left_image_topic})")
         if right is None:
             missing.append(f"right ({right_image_topic})")
+        if servo is None:
+            missing.append(f"servo ({servo_image_topic})")
         sys.stdout.write(f" WARNING: no images from: {', '.join(missing)}\n")
 
     # -- Gravity comp helper -----------------------------------------------
@@ -337,11 +356,40 @@ async def run_calibration(  # noqa: PLR0912, C901
             sys.stdout.write("\r  moving 100% — settling...")
             sys.stdout.flush()
 
-            # ---- Settle ----------------------------------------------------
-            await asyncio.sleep(settle_ms / 1000.0)
+            # ---- Settle: keep commanding final position and reading state ---
+            settle_hz = move_hz
+            settle_dt = 1.0 / settle_hz
+            settle_steps = int((settle_ms / 1000.0) * settle_hz)
+            for _ in range(settle_steps):
+                for side, slave in slaves.items():
+                    wp_q = wp.get(side, wp.get("left", []))
+                    n_joints = min(len(wp_q), len(MOTOR_CONFIGS))
+
+                    grav_torques = []
+                    if _gc:
+                        grav_torques = _gc.compute(slave.get_positions(), position=side)
+
+                    for idx, motor in enumerate(slave.motors):
+                        if motor is None or idx >= n_joints:
+                            continue
+                        pos = wp_q[idx]
+                        if slave.mirror_mode and MOTOR_CONFIGS[idx].inverted:
+                            pos = -pos
+                        kp, kd = JOINT_GAINS[idx] if idx < len(JOINT_GAINS) else (2.0, 1.0)
+                        torque = grav_torques[idx] if idx < len(grav_torques) else 0.0
+                        params = MitControlParams(q=pos, dq=0, kp=kp, kd=kd, tau=torque)
+                        try:
+                            encode_control_mit(motor._bus, motor._slave_id, motor._motor_limits, params)
+                            time.sleep(FRAME_GAP)
+                            state = decode_motor_state_sync(motor._bus, motor._master_id, motor._motor_limits)
+                            if state is not None:
+                                slave.states[idx] = state
+                        except Exception:
+                            pass
+                await asyncio.sleep(settle_dt)
 
             # ---- Capture images -------------------------------------------
-            left_img, right_img = img_listener.grab()
+            left_img, right_img, servo_img = img_listener.grab()
             side_to_img: dict[str, np.ndarray | None] = {
                 "left": left_img, "right": right_img,
             }
@@ -355,6 +403,13 @@ async def run_calibration(  # noqa: PLR0912, C901
                 else:
                     sys.stdout.write(f"\n  WARNING: no {side} image at waypoint {wp_idx}\n")
                     wp_entry[f"{side}_image"] = None
+            servo_rel = f"servo/images/{wp_idx:04d}.png"
+            if servo_img is not None:
+                cv2.imwrite(str(out / servo_rel), servo_img)
+                wp_entry["servo_image"] = servo_rel
+            else:
+                sys.stdout.write(f"\n  WARNING: no servo image at waypoint {wp_idx}\n")
+                wp_entry["servo_image"] = None
 
             # ---- FK → arm_T_ee ------------------------------------------
             for side, slave in slaves.items():

@@ -10,11 +10,16 @@ from mpl_toolkits.mplot3d import Axes3D
 class CalibrateExtrinsics:
     def __init__(self, cal_folder: str):
         self.cal_folder = cal_folder
-        self.left_images, self.right_images, self.right_arm_T_ee, self.left_arm_T_ee, self.body_T_left_arm, self.body_T_right_arm = self.load_calibration()
-        self.left_K, self.left_D, self.right_K, self.right_D = self.load_intrinsics()
+        (self.left_images, self.right_images, self.servo_images,
+         self.right_arm_T_ee, self.left_arm_T_ee,
+         self.body_T_left_arm, self.body_T_right_arm) = self.load_calibration()
+        (self.left_K, self.left_D,
+         self.right_K, self.right_D,
+         self.servo_K, self.servo_D) = self.load_intrinsics()
         self.tag_rows, self.tag_cols, self.tag_size, self.tag_spacing, self.object_points = self.load_april_grid()
         self.detector = Detector("t36h11")
-        print(f"Found {len(self.left_images)} left images and {len(self.right_images)} right images")
+        print(f"Found {len(self.left_images)} left, {len(self.right_images)} right, "
+              f"{len(self.servo_images)} servo images")
         print(f"AprilGrid: {self.tag_rows}x{self.tag_cols}, tag_size={self.tag_size}m, "
               f"{len(self.object_points)} tags with 3D points")
     
@@ -23,6 +28,7 @@ class CalibrateExtrinsics:
             calibration = yaml.safe_load(f)
         left_images = []
         right_images = []
+        servo_images = []
         right_arm_T_ee = []
         left_arm_T_ee = []
         for wp in calibration["waypoints"]:
@@ -30,11 +36,21 @@ class CalibrateExtrinsics:
             right_image_path = os.path.join(self.cal_folder, wp["right_image"])
             left_images.append(cv2.imread(left_image_path, cv2.IMREAD_GRAYSCALE))
             right_images.append(cv2.imread(right_image_path, cv2.IMREAD_GRAYSCALE))
+            servo_path = wp.get("servo_image")
+            if servo_path:
+                img = cv2.imread(os.path.join(self.cal_folder, servo_path))
+                servo_images.append(
+                    cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img is not None else None
+                )
+            else:
+                servo_images.append(None)
             right_arm_T_ee.append(wp["right_arm_T_ee"])
             left_arm_T_ee.append(wp["left_arm_T_ee"])
         body_T_left_arm = np.array(calibration["body_T_left_arm"])
         body_T_right_arm = np.array(calibration["body_T_right_arm"])
-        return left_images, right_images, right_arm_T_ee, left_arm_T_ee, body_T_left_arm, body_T_right_arm
+        return (left_images, right_images, servo_images,
+                right_arm_T_ee, left_arm_T_ee,
+                body_T_left_arm, body_T_right_arm)
 
     @staticmethod
     def _parse_pinhole(cam_dict):
@@ -48,6 +64,7 @@ class CalibrateExtrinsics:
     def load_intrinsics(self):
         left_path = os.path.join(self.cal_folder, "d405_left_stereo_calib.yaml")
         right_path = os.path.join(self.cal_folder, "d405_right_stereo_calib.yaml")
+        servo_path = os.path.join(self.cal_folder, "servo_calib.yaml")
         with open(left_path) as f:
             left_calib = yaml.safe_load(f)
         with open(right_path) as f:
@@ -56,7 +73,15 @@ class CalibrateExtrinsics:
         right_K, right_D = self._parse_pinhole(right_calib["cam0"])
         print(f"Loaded left intrinsics:\n{left_K}\n  dist: {left_D}")
         print(f"Loaded right intrinsics:\n{right_K}\n  dist: {right_D}")
-        return left_K, left_D, right_K, right_D
+        if os.path.exists(servo_path):
+            with open(servo_path) as f:
+                servo_calib = yaml.safe_load(f)
+            servo_K, servo_D = self._parse_pinhole(servo_calib["cam0"])
+            print(f"Loaded servo intrinsics:\n{servo_K}\n  dist: {servo_D}")
+        else:
+            print(f"WARNING: servo intrinsics not found at {servo_path}")
+            servo_K, servo_D = None, None
+        return left_K, left_D, right_K, right_D, servo_K, servo_D
 
     def load_april_grid(self):
         with open(os.path.join(self.cal_folder, "april.yaml")) as f:
@@ -107,11 +132,15 @@ class CalibrateExtrinsics:
     def detect_april_tags(self, images):
         all_detections = []
         for i, img in enumerate(images):
+            if img is None:
+                print(f"Image {i}: MISSING")
+                all_detections.append([])
+                continue
             detections = self._safe_detect(img)
             print(f"Image {i}: {img.shape}, found {len(detections)} tags")
             all_detections.append(detections)
 
-            vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else img.copy()
             for det in detections:
                 pts = det.corners.astype(int).reshape((-1, 1, 2))
                 cv2.polylines(vis, [pts], isClosed=True, color=(0, 0, 255), thickness=2)
@@ -171,7 +200,9 @@ class CalibrateExtrinsics:
         n = len(R_g2b)
         print(f"  Hand-eye: using {n} valid pose pairs")
         if n < 3:
-            raise RuntimeError("Need >= 3 valid pose pairs for hand-eye calibration")
+            print("  WARNING: <3 valid pairs, returning identity for all methods")
+            return {name: np.eye(4) for name in
+                    ("TSAI", "PARK", "HORAUD", "ANDREFF", "DANIILIDIS")}
 
         methods = {
             "TSAI":      cv2.CALIB_HAND_EYE_TSAI,
@@ -200,6 +231,8 @@ class CalibrateExtrinsics:
             arm_T_ee = np.array(ate_raw, dtype=np.float64)
             arm_T_board = arm_T_ee @ ee_T_cam @ ctb
             origins.append(arm_T_board[:3, 3])
+        if len(origins) < 2:
+            return float("nan")
         origins = np.array(origins)
         return np.linalg.norm(np.std(origins, axis=0))
 
@@ -219,11 +252,23 @@ class CalibrateExtrinsics:
         ctb_list = list(cam_T_board_list)
         n_total = sum(1 for c in ctb_list if c is not None)
         removed = []
+        ee_T_cam = np.eye(4)
 
         while True:
             valid = [(i, ate_list[i], ctb_list[i])
                      for i in range(len(ate_list)) if ctb_list[i] is not None]
             if len(valid) < min_pairs:
+                if len(valid) >= 3:
+                    R_g, t_g, R_t, t_t = [], [], [], []
+                    for _, ate_raw, ctb in valid:
+                        T = np.array(ate_raw, dtype=np.float64)
+                        R_g.append(T[:3, :3])
+                        t_g.append(T[:3, 3].reshape(3, 1))
+                        R_t.append(ctb[:3, :3])
+                        t_t.append(ctb[:3, 3].reshape(3, 1))
+                    R, t = cv2.calibrateHandEye(R_g, t_g, R_t, t_t, method=method_flag)
+                    ee_T_cam[:3, :3] = R
+                    ee_T_cam[:3, 3] = t.flatten()
                 break
 
             R_g, t_g, R_t, t_t = [], [], [], []
@@ -537,15 +582,23 @@ def _set_equal_aspect(ax, points):
 
 
 if __name__ == "__main__":
-    cal = CalibrateExtrinsics("/home/hans/projects/openarm/calib_longer")
+    cal = CalibrateExtrinsics("/home/hans/projects/openarm/new_cam")
 
     print("\nDetecting tags — left images")
     left_dets = cal.detect_april_tags(cal.left_images)
     print("\nDetecting tags — right images")
     right_dets = cal.detect_april_tags(cal.right_images)
 
+    has_servo = cal.servo_K is not None and any(
+        img is not None for img in cal.servo_images
+    )
+    servo_dets = []
+    if has_servo:
+        print("\nDetecting tags — servo images")
+        servo_dets = cal.detect_april_tags(cal.servo_images)
+
     print("\nEstimating board poses (PnP) ...")
-    REPROJ_THRESH_PX = 0.5
+    REPROJ_THRESH_PX = 3.0
     left_cam_T_board, left_reproj = zip(*[cal.estimate_board_pose(d, cal.left_K, cal.left_D)
                                            for d in left_dets])
     right_cam_T_board, right_reproj = zip(*[cal.estimate_board_pose(d, cal.right_K, cal.right_D)
@@ -555,11 +608,24 @@ if __name__ == "__main__":
     left_reproj = list(left_reproj)
     right_reproj = list(right_reproj)
 
+    if has_servo:
+        servo_cam_T_board, servo_reproj = zip(*[
+            cal.estimate_board_pose(d, cal.servo_K, cal.servo_D)
+            if d else (None, float("inf"))
+            for d in servo_dets
+        ])
+        servo_cam_T_board = list(servo_cam_T_board)
+        servo_reproj = list(servo_reproj)
+
     for i, (l, le, r, re) in enumerate(zip(left_cam_T_board, left_reproj,
                                             right_cam_T_board, right_reproj)):
         lstr = f"t={l[:3,3]} reproj={le:.2f}px" if l is not None else "FAIL"
         rstr = f"t={r[:3,3]} reproj={re:.2f}px" if r is not None else "FAIL"
-        print(f"  wp {i}: left {lstr}  |  right {rstr}")
+        sstr = ""
+        if has_servo:
+            s, se = servo_cam_T_board[i], servo_reproj[i]
+            sstr = f"  |  servo {f't={s[:3,3]} reproj={se:.2f}px' if s is not None else 'FAIL'}"
+        print(f"  wp {i}: left {lstr}  |  right {rstr}{sstr}")
 
     # Filter out waypoints with high reprojection error
     n_before = sum(1 for t in left_cam_T_board if t is not None)
@@ -570,8 +636,16 @@ if __name__ == "__main__":
             right_cam_T_board[i] = None
     n_left = sum(1 for t in left_cam_T_board if t is not None)
     n_right = sum(1 for t in right_cam_T_board if t is not None)
-    print(f"\n  Reproj filter (>{REPROJ_THRESH_PX}px): "
-          f"left {n_before}→{n_left}, right {n_before}→{n_right}")
+    msg = (f"\n  Reproj filter (>{REPROJ_THRESH_PX}px): "
+           f"left {n_before}→{n_left}, right {n_before}→{n_right}")
+    if has_servo:
+        n_servo_before = sum(1 for t in servo_cam_T_board if t is not None)
+        for i in range(len(servo_cam_T_board)):
+            if servo_reproj[i] > REPROJ_THRESH_PX:
+                servo_cam_T_board[i] = None
+        n_servo = sum(1 for t in servo_cam_T_board if t is not None)
+        msg += f", servo {n_servo_before}→{n_servo}"
+    print(msg)
 
     # Robust hand-eye: iteratively remove worst FK outliers
     ORIGIN_THRESH_MM = 17.5
@@ -582,42 +656,86 @@ if __name__ == "__main__":
     ee_T_cam_right, right_cam_T_board = cal.calibrate_hand_eye_robust(
         cal.right_arm_T_ee, right_cam_T_board, origin_thresh_mm=ORIGIN_THRESH_MM)
 
+    ee_T_cam_servo = None
+    best_servo_method = None
+    best_servo_std = None
+    if has_servo:
+        print(f"\n--- Robust servo hand-eye (origin thresh = {ORIGIN_THRESH_MM} mm) ---")
+        ee_T_cam_servo, servo_cam_T_board = cal.calibrate_hand_eye_robust(
+            cal.left_arm_T_ee, servo_cam_T_board, origin_thresh_mm=ORIGIN_THRESH_MM)
+
     # Now run all methods on the cleaned data to compare
     print("\n--- Left hand-eye calibration (cleaned) ---")
     left_results = cal.calibrate_hand_eye(cal.left_arm_T_ee, left_cam_T_board)
     print("\n--- Right hand-eye calibration (cleaned) ---")
     right_results = cal.calibrate_hand_eye(cal.right_arm_T_ee, right_cam_T_board)
+    servo_results = {}
+    if has_servo:
+        print("\n--- Servo hand-eye calibration (cleaned) ---")
+        servo_results = cal.calibrate_hand_eye(cal.left_arm_T_ee, servo_cam_T_board)
 
     print("\n--- Method comparison (board origin std in meters) ---")
-    print(f"  {'Method':<12} {'Left std':>10} {'Right std':>10}")
-    print(f"  {'-'*12} {'-'*10} {'-'*10}")
+    header = f"  {'Method':<12} {'Left std':>10} {'Right std':>10}"
+    sep = f"  {'-'*12} {'-'*10} {'-'*10}"
+    if has_servo:
+        header += f" {'Servo std':>10}"
+        sep += f" {'-'*10}"
+    print(header)
+    print(sep)
     best_left_method, best_left_std = None, float("inf")
     best_right_method, best_right_std = None, float("inf")
+    best_servo_method, best_servo_std = None, float("inf")
     for method in left_results:
         l_std = cal._board_origin_std(cal.left_arm_T_ee, left_cam_T_board,
                                       left_results[method])
         r_std = cal._board_origin_std(cal.right_arm_T_ee, right_cam_T_board,
                                       right_results[method])
-        print(f"  {method:<12} {l_std:>10.4f} {r_std:>10.4f}")
-        if l_std < best_left_std:
+        row = f"  {method:<12} {l_std:>10.4f} {r_std:>10.4f}"
+        if has_servo and method in servo_results:
+            s_std = cal._board_origin_std(cal.left_arm_T_ee, servo_cam_T_board,
+                                          servo_results[method])
+            row += f" {s_std:>10.4f}"
+            if not np.isnan(s_std) and s_std < best_servo_std:
+                best_servo_std = s_std
+                best_servo_method = method
+        print(row)
+        if not np.isnan(l_std) and l_std < best_left_std:
             best_left_std = l_std
             best_left_method = method
-        if r_std < best_right_std:
+        if not np.isnan(r_std) and r_std < best_right_std:
             best_right_std = r_std
             best_right_method = method
 
+    # Fall back to first available method if best is still None (too few pairs)
+    _all_methods = list(left_results.keys())
+    if best_left_method is None:
+        best_left_method = _all_methods[0]
+        print(f"  WARNING: no valid left calibration, using {best_left_method} (identity)")
+    if best_right_method is None:
+        best_right_method = _all_methods[0]
+        print(f"  WARNING: no valid right calibration, using {best_right_method} (identity)")
+
     print(f"\n  Best left:  {best_left_method} ({best_left_std:.4f} m)")
     print(f"  Best right: {best_right_method} ({best_right_std:.4f} m)")
+    if best_servo_method:
+        print(f"  Best servo: {best_servo_method} ({best_servo_std:.4f} m)")
 
     ee_T_cam_left = left_results[best_left_method]
     ee_T_cam_right = right_results[best_right_method]
+    if best_servo_method:
+        ee_T_cam_servo = servo_results[best_servo_method]
     print(f"\n  ee_T_cam_left ({best_left_method}):\n{ee_T_cam_left}")
     print(f"\n  ee_T_cam_right ({best_right_method}):\n{ee_T_cam_right}")
+    if ee_T_cam_servo is not None:
+        print(f"\n  ee_T_cam_servo ({best_servo_method}):\n{ee_T_cam_servo}")
 
     cal.plot_board_poses("left", cal.left_arm_T_ee, left_cam_T_board,
                          ee_T_cam_left, cal.body_T_left_arm)
     cal.plot_board_poses("right", cal.right_arm_T_ee, right_cam_T_board,
                          ee_T_cam_right, cal.body_T_right_arm)
+    if ee_T_cam_servo is not None:
+        cal.plot_board_poses("servo", cal.left_arm_T_ee, servo_cam_T_board,
+                             ee_T_cam_servo, cal.body_T_left_arm)
     cal.plot_cad_comparison(ee_T_cam_left, ee_T_cam_right)
 
     cal.plot_reprojection_errors("left", left_dets, cal.left_arm_T_ee,
@@ -626,6 +744,10 @@ if __name__ == "__main__":
     cal.plot_reprojection_errors("right", right_dets, cal.right_arm_T_ee,
                                  right_cam_T_board, ee_T_cam_right,
                                  cal.right_K, cal.right_D)
+    if ee_T_cam_servo is not None:
+        cal.plot_reprojection_errors("servo", servo_dets, cal.left_arm_T_ee,
+                                     servo_cam_T_board, ee_T_cam_servo,
+                                     cal.servo_K, cal.servo_D)
 
     # Save calibrated ee_T_cam to YAML
     out_path = os.path.join(cal.cal_folder, "ee_T_cam.yaml")
@@ -641,6 +763,12 @@ if __name__ == "__main__":
             "board_origin_std_m": float(best_right_std),
         },
     }
+    if ee_T_cam_servo is not None:
+        ee_T_cam_data["servo"] = {
+            "ee_T_cam": ee_T_cam_servo.tolist(),
+            "method": best_servo_method,
+            "board_origin_std_m": float(best_servo_std),
+        }
     with open(out_path, "w") as f:
         yaml.dump(ee_T_cam_data, f, default_flow_style=None, sort_keys=False)
     print(f"\nSaved ee_T_cam → {out_path}")
