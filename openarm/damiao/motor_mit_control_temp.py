@@ -13,7 +13,7 @@ from .encoding import ControlMode, MitControlParams
 from .motor import Motor
 
 
-OPEN_DEG = -60
+OPEN_DEG = -160
 CLOSE_DEG = 0
 
 KP = 0.1
@@ -70,7 +70,7 @@ async def motor_stream_loop(motor: Motor, state):
             dq=0,
             kp=KP,
             kd=KD,
-            tau=TAU,
+            tau=TAU * state["tau_sign"],
         )
 
         motor_state = await motor.control_mit(params)
@@ -96,9 +96,11 @@ async def ui_loop(stdscr, state, name):
 
         elif key == ord("o"):
             state["target"] = OPEN_DEG
+            state["tau_sign"] = -1
 
         elif key == ord("c"):
             state["target"] = CLOSE_DEG
+            state["tau_sign"] = 1
 
         stdscr.clear()
 
@@ -112,6 +114,7 @@ async def ui_loop(stdscr, state, name):
         stdscr.addstr(7, 0, f"Temp     : {state['temp']:8.2f} C")
 
         stdscr.addstr(9, 0, f"Target   : {state['target']} deg")
+        stdscr.addstr(10, 0, f"Tau ff   : {TAU * state['tau_sign']:+.2f} Nm")
 
         stdscr.addstr(12, 0, "Controls:")
         stdscr.addstr(13, 0, "o → open motor")
@@ -137,6 +140,7 @@ async def main(args):
         "vel": 0,
         "temp": 0,
         "target": 0,  # default target always 0°
+        "tau_sign": 0,
     }
 
     try:
