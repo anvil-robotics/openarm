@@ -187,7 +187,7 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     try:
-        return await _main(can_bus, args.side)
+        return await _main(can_bus, "left")  # J8 has no left/right difference
     finally:
         can_bus.shutdown()
 
@@ -541,13 +541,13 @@ def parse_arguments() -> argparse.Namespace:
         help="CAN interface type (default: socketcan)",
     )
 
-    parser.add_argument(
-        "--side",
-        "-s",
-        required=True,
-        choices=["left", "right"],
-        help="Arm side (left or right)",
-    )
+    # parser.add_argument(
+    #     "--side",
+    #     "-s",
+    #     required=True,
+    #     choices=["left", "right"],
+    #     help="Arm side (left or right)",
+    # )
 
     return parser.parse_args()
 
