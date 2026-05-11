@@ -8,7 +8,7 @@ Reference: README.md High-Level Motor Class section for architecture details.
 """
 
 from collections.abc import Coroutine
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from openarm.bus import Bus
@@ -42,7 +42,7 @@ from .encoding import (
 )
 
 
-class MotorType(str, Enum):
+class MotorType(StrEnum):
     """Enumeration of Damiao motor types.
 
     Reference: DM_CAN.py DM_Motor_Type enum and Limit_Param array lines 65-69

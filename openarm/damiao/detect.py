@@ -105,7 +105,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0912
 
     # Get available CAN bus configs
     # If no interfaces specified, default to socketcan
-    interfaces = args.interface if args.interface else ["socketcan"]
+    interfaces = args.interface or ["socketcan"]
     bus_configs = list(can.detect_available_configs(interfaces=interfaces))
 
     if not bus_configs:

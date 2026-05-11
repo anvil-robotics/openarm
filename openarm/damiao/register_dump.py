@@ -335,7 +335,7 @@ async def main(args: argparse.Namespace) -> None:
 
     """
     # Get available CAN bus configs
-    interfaces = args.interface if args.interface else ["socketcan"]
+    interfaces = args.interface or ["socketcan"]
     bus_configs = list(can.detect_available_configs(interfaces=interfaces))
 
     if not bus_configs:

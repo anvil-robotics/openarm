@@ -4,6 +4,7 @@ import json
 import socket
 from collections.abc import Iterator
 from time import time
+from typing import Self
 
 from can import BusABC, Message
 
@@ -69,7 +70,7 @@ class Client(BusABC):
         payload = {
             "arbitration_id": msg.arbitration_id,
             "data": msg.data.hex() if msg.data else "",
-            "timestamp": msg.timestamp if msg.timestamp else time(),
+            "timestamp": msg.timestamp or time(),
             "is_extended_id": msg.is_extended_id,
         }
 
@@ -149,7 +150,7 @@ class Client(BusABC):
         """Check if client is connected to server."""
         return self._is_connected
 
-    def __enter__(self) -> "Client":
+    def __enter__(self) -> Self:
         """Context manager entry."""
         self.connect()
         return self

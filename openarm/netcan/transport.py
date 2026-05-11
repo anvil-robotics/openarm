@@ -39,7 +39,7 @@ class SocketTransport:
         payload = {
             "arbitration_id": message.arbitration_id,
             "data": message.data.hex() if message.data else "",
-            "timestamp": message.timestamp if message.timestamp else time(),
+            "timestamp": message.timestamp or time(),
             "is_extended_id": message.is_extended_id,
         }
 
