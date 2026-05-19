@@ -58,8 +58,8 @@ MOTOR_CONFIGS: list[MotorConfig] = [
         slave_id=0x01,
         master_id=0x11,
         type=MotorType.DM8009,
-        min_angle=-145.0,
-        max_angle=180.0 ,
+        min_angle=-235.0,
+        max_angle=90.0 ,
     ),
     MotorConfig(
         "J2",
