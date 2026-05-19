@@ -101,14 +101,6 @@ MOTOR_CONFIGS: list[MotorConfig] = [
         min_angle=-135.0,
         max_angle=105.0,
     ),
-    MotorConfig(
-        "J7",
-        slave_id=0x07,
-        master_id=0x17,
-        type=MotorType.DM4310,
-        min_angle=-165.0,
-        max_angle=0.0,
-    ),
 ]
 
 # ANSI color codes for terminal output
