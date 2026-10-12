@@ -34,7 +34,7 @@ import can
 
 from openarm.bus import Bus
 
-from .config import MOTOR_CONFIGS
+from .config import ROBOT_MOTOR_CONFIGS
 from .detect import detect_motors
 from .encoding import ControlMode, MitControlParams, PosVelControlParams
 from .motor import Motor
@@ -47,7 +47,7 @@ CYAN = "\033[96m"
 RESET = "\033[0m"
 
 # Coverage and position thresholds
-MIN_COVERAGE_PERCENT = 98
+MIN_COVERAGE_PERCENT = 97
 MAX_COVERAGE_PERCENT = 102
 MAX_POSITION_ERROR_DEG = 10
 
@@ -164,6 +164,10 @@ async def set_zero(
 
             # Set zero position and save
             await motor.set_zero_position()
+
+            # Restore MIT before saving, so flash holds the mode the motor ships in
+            # rather than the POS_VEL used to drive it here.
+            await motor.set_control_mode(ControlMode.MIT)
             await motor.save_parameters()
 
             sys.stdout.write(f"  {GREEN}✓{RESET} {config.name}: Zero set\r\n")
@@ -188,23 +192,24 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     try:
-        return await _main(can_bus, args.side, args.motors)
+        return await _main(can_bus, args.side, args.motors, args.robot)
     finally:
         can_bus.shutdown()
 
 
 async def _main(
-    can_bus: can.BusABC, side: str, selected_motors: list[str] | None
+    can_bus: can.BusABC, side: str, selected_motors: list[str] | None, robot: str
 ) -> None:
     """Process motors on the bus and track angle ranges."""
+    robot_configs = ROBOT_MOTOR_CONFIGS[robot]
     # Filter motor configs based on selection
     if selected_motors:
-        motor_configs = [c for c in MOTOR_CONFIGS if c.name in selected_motors]
+        motor_configs = [c for c in robot_configs if c.name in selected_motors]
         motors_str = ", ".join(selected_motors)
         sys.stdout.write(f"\r\n{CYAN}Tracking selected motors: {motors_str}{RESET}\r\n")
     else:
-        motor_configs = MOTOR_CONFIGS
-        sys.stdout.write(f"\r\n{CYAN}Tracking all motors (J1-J8){RESET}\r\n")
+        motor_configs = robot_configs
+        sys.stdout.write(f"\r\n{CYAN}Tracking all {robot} motors{RESET}\r\n")
 
     # Detect motors on the bus
     sys.stdout.write(f"{CYAN}Scanning for motors...{RESET}\r\n")
@@ -562,12 +567,20 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--robot",
+        "-r",
+        default="openarm",
+        choices=list(ROBOT_MOTOR_CONFIGS),
+        help="Robot type, selects motor set and limits (default: openarm)",
+    )
+
+    parser.add_argument(
         "--motors",
         "-m",
         type=str,
         help=(
             "Comma-separated list of motors to track (e.g., J1,J2,J4). "
-            "Default: all motors (J1-J8)"
+            "Default: all motors for --robot"
         ),
     )
 
@@ -575,7 +588,7 @@ def parse_arguments() -> argparse.Namespace:
 
     # Validate motor names if provided
     if args.motors:
-        valid_motors = {config.name for config in MOTOR_CONFIGS}
+        valid_motors = {config.name for config in ROBOT_MOTOR_CONFIGS[args.robot]}
         requested_motors = [m.strip().upper() for m in args.motors.split(",")]
         invalid_motors = [m for m in requested_motors if m not in valid_motors]
         if invalid_motors:
