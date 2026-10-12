@@ -287,6 +287,9 @@ damiao-set-zero-limit --channel can0 --side left
 
 # Track angle ranges for right arm
 damiao-set-zero-limit --channel can1 --side right
+
+# Other robots: --robot openarm2 | openyam | openyam2 (default: openarm)
+damiao-set-zero-limit --channel can0 --side left --robot openyam2
 ```
 
 Move each motor through its full range of motion, then press 'S' to set zero positions.
